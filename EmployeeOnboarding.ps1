@@ -155,8 +155,7 @@ function New-EmployeeOnboarding {
         }
         return $userInput
     }
-
-    function Check-IfAccountExists {  
+      function Check-IfAccountExists {  
         [CmdletBinding()]
         param (
             [Parameter(Mandatory)]
@@ -195,7 +194,7 @@ function New-EmployeeOnboarding {
                         $User = $SplitName[0].Substring(0, 1) + $Last 
                         
                         $CheckForUser = Invoke-Command -ComputerName $DomainController -ScriptBlock {
-                            Get-ADUser -Filter { samaccountname -eq $Using:Name } 
+                            Get-ADUser -Filter { samaccountname -eq $Using:User } 
                         } -Credential $Credentials
                         return $CheckForUser
                     }
@@ -738,8 +737,8 @@ function New-EmployeeOnboarding {
     $Name = $null
     $Name = Get-UserInput -InputType "Name" -Regex '^\s|\s{2,}|\s$|\d|\0|[^a-zA-Z\s]' -FailMessage "Please provide a valid name."
     if (!$Name) { return }
-    if (!(Check-IfAccountExists -Name $Name -InputType "Name" -Credentials $Creds)) { 
-        Write-Host -ForegroundColor Red "$Name not found in AD." 
+    if (Check-IfAccountExists -Name $Name -InputType "Name" -Credentials $Creds) { 
+        Write-Host -ForegroundColor Red "$Name found in AD." 
         $Name = $null
         return
     }
