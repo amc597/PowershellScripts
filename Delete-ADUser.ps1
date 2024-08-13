@@ -48,7 +48,7 @@ function Delete-ADUser {
         }
         return $userInput
     }
-    function Check-IfAccountExists {  
+        function Check-IfAccountExists {  
         [CmdletBinding()]
         param (
             [Parameter(Mandatory)]
@@ -87,7 +87,7 @@ function Delete-ADUser {
                         $User = $SplitName[0].Substring(0, 1) + $Last 
                         
                         $CheckForUser = Invoke-Command -ComputerName $DomainController -ScriptBlock {
-                            Get-ADUser -Filter { samaccountname -eq $Using:Name } 
+                            Get-ADUser -Filter { samaccountname -eq $Using:User } 
                         } -Credential $Credentials
                         return $CheckForUser
                     }
