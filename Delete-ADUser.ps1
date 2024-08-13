@@ -154,4 +154,11 @@ function Delete-ADUser {
     } 
 
 } 
-Delete-ADUser -DomainController "tm-dc05"
+Delete-ADUser -DomainController ""
+
+
+
+
+
+
+
