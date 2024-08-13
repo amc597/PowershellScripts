@@ -1,4 +1,4 @@
-function New-EmployeeSetup {
+function New-EmployeeOnboarding {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory)]
@@ -155,6 +155,7 @@ function New-EmployeeSetup {
         }
         return $userInput
     }
+
     function Check-IfAccountExists {  
         [CmdletBinding()]
         param (
@@ -164,6 +165,8 @@ function New-EmployeeSetup {
             [Parameter(Mandatory)]
             [string]
             $InputType,
+            [Parameter(Mandatory)]
+            [pscredential]
             $Credentials
         )      
         switch ($InputType) {
@@ -183,17 +186,25 @@ function New-EmployeeSetup {
             }
             "Name" {
                 if ($Name) {
-                    $SplitName = $Name.split(" ")
-                    $Last = @() -join '' -replace '\s'
-                    for ($i = 1; $i -lt $SplitName.Count; $i++) {
-                        $Last += $SplitName[$i]
+                    if ($Name.Contains(" ")) {
+                        $SplitName = $Name.split(" ")
+                        $Last = @() -join '' -replace '\s'
+                        for ($i = 1; $i -lt $SplitName.Count; $i++) {
+                            $Last += $SplitName[$i]
+                        }
+                        $User = $SplitName[0].Substring(0, 1) + $Last 
+                        
+                        $CheckForUser = Invoke-Command -ComputerName $DomainController -ScriptBlock {
+                            Get-ADUser -Filter { samaccountname -eq $Using:Name } 
+                        } -Credential $Credentials
+                        return $CheckForUser
                     }
-                    $User = $SplitName[0].Substring(0, 1) + $Last
-            
-                    $CheckForUser = Invoke-Command -ComputerName $DomainController -ScriptBlock {
-                        Get-ADUser -Filter { samaccountname -eq $Using:User } 
-                    } -Credential $Credentials 
-                    return $CheckForUser 
+                    else {
+                        $CheckForUser = Invoke-Command -ComputerName $DomainController -ScriptBlock {
+                            Get-ADUser -Filter { samaccountname -eq $Using:Name } 
+                        } -Credential $Credentials
+                        return $CheckForUser
+                    }                     
                 }
                 elseif (!$Name) {
                     Write-Host -ForegroundColor Red "A name has not been provided."
@@ -259,7 +270,7 @@ function New-EmployeeSetup {
             [string]
             $Schema                
         )
-        if (($OU -like '*TDMK Okta*') -and ($Title -notlike '*Intern*')) {
+        if (($OU -like '') -and ($Title -notlike '*Intern*')) {
             $GetLastID = Invoke-Sqlcmd -Query "SELECT Top 1 ID,Name,Email,StartDate FROM [$Database].[$Schema].[$TableName] Order by ID Desc" `
                 -ServerInstance $ServerInstance -Database $Database -TrustServerCertificate  
             $ID = $GetLastID.ID + 1
@@ -319,9 +330,9 @@ function New-EmployeeSetup {
                 }
                 else { Write-Host -ForegroundColor Red "$Name has NOT been added to $TableName" }            
             }
-            Check-SqlRow -ServerInstance $SqlServerInstance -Database 'Monthly_Time_Allocations' -TableName 'EmployeeName' -Schema 'dbo' -Name $Name
+            Check-SqlRow -ServerInstance $SqlServerInstance -Database 's' -TableName '' -Schema 'dbo' -Name $Name
         }
-        else { Write-Host -ForegroundColor Red "$Name has not been added to the time allocation table." }
+        else { Write-Host -ForegroundColor Red "$Name has not been added to the table." }
     } 
     function Install-NeededPackages {
         [CmdletBinding()]
@@ -557,41 +568,41 @@ function New-EmployeeSetup {
         $Selection.TypeParagraph()
 
         switch ($OfficeLocation) {
-            { $OfficeLocation -like '*TDMK Okta*' } { 
-                $Wifi =
-                $Password = 
+            { $OfficeLocation -like '' } { 
+                $Wifi = "" 
+                $Password = "" 
             }
-            { $OfficeLocation -like '*Annapolis Users*' } { 
-                $Wifi = 
-                $Password = 
+            { $OfficeLocation -like '' } { 
+                $Wifi = "" 
+                $Password = "" 
             }
-            { $OfficeLocation -like '*Dallas Galleria Users*' } { 
-                $Wifi = 
-                $Password = 
+            { $OfficeLocation -like '' } { 
+                $Wifi = "" 
+                $Password = "" 
             }
-            { $OfficeLocation -like '*La Palmera Users*' } { 
-                $Wifi = 
-                $Password = 
+            { $OfficeLocation -like '' } { 
+                $Wifi = "" 
+                $Password = "" 
             }
-            { $OfficeLocation -like '*Market Street Users*' } { 
-                $Wifi = 
-                $Password =
+            { $OfficeLocation -like '' } { 
+                $Wifi = "" 
+                $Password = "" 
             }
-            { $OfficeLocation -like '*North Point Users*' } { 
-                $Wifi = 
-                $Password = 
+            { $OfficeLocation -like '' } { 
+                $Wifi = "" 
+                $Password = "" 
             }
-            { $OfficeLocation -like '*Perkins Rowe Users*' } {  
-                $Wifi = 
-                $Password = 
+            { $OfficeLocation -like '' } {  
+                $Wifi = "" 
+                $Password = "" 
             }
-            { $OfficeLocation -like '*Saddle Creek Users*' } { 
-                $Wifi = 
-                $Password = 
+            { $OfficeLocation -like '' } { 
+                $Wifi = "" 
+                $Password = "" 
             }
-            { $OfficeLocation -like '*Zona Rosa Users*' } { 
-                $Wifi =  
-                $Password =  
+            { $OfficeLocation -like '' } { 
+                $Wifi = "" 
+                $Password = "" 
             }
         }
 
@@ -727,11 +738,12 @@ function New-EmployeeSetup {
     $Name = $null
     $Name = Get-UserInput -InputType "Name" -Regex '^\s|\s{2,}|\s$|\d|\0|[^a-zA-Z\s]' -FailMessage "Please provide a valid name."
     if (!$Name) { return }
-    if (Check-IfAccountExists -Name $Name -InputType "Name" -Credentials $Creds) { 
-        Write-Host -ForegroundColor Red "$Name found" 
+    if (!(Check-IfAccountExists -Name $Name -InputType "Name" -Credentials $Creds)) { 
+        Write-Host -ForegroundColor Red "$Name not found in AD." 
         $Name = $null
         return
-    }   
+    }
+    else { $Name = $CheckForUser.SamAccountName }
     
     $Title = @()
     $Manager = @()
@@ -771,6 +783,10 @@ function New-EmployeeSetup {
         $StartDate = Get-UserInput -InputType "Date" -Regex '^\s|^[^\/0-9]|\s|[^\/0-9]|\s$|[^\/0-9]$' -RegexMatch '' -FailMessage "Please provide a valid start date."
         If (!$StartDate) { return }
     }
+    if (!$PhoneNumber) {
+        $PhoneNumber = '817-870-1122'
+    }
+
     if (!$Office) {
         $Office = $null
         $Office = Get-UserInput -InputType "Office" -Regex '^\s|\s{2,}|\s$|\d|\0|[^a-zA-Z\s]' -FailMessage "Please provide a valid office location."
@@ -796,7 +812,7 @@ function New-EmployeeSetup {
         $Last += $SplitName[$i]
     }
     $User = $First.Substring(0, 1) + $Last
-    $Email = $User + "@trademarkproperty.com"
+    $Email = $User + "@.com"
 
     $ManagerSplit = $Manager.split(" ")
     $ManagerUser = @() 
@@ -816,65 +832,65 @@ function New-EmployeeSetup {
     $OU = $OU -join ','
 
     switch ($Office) {
-        { $Office -like '*Corporate*' } { 
-            $OfficeAddress = 
-            $OfficeState = 
-            $OfficeCity = 
-            $ZipCode = 
+        { $Office -like '' } { 
+            $OfficeAddress = ""
+            $OfficeState = ""
+            $OfficeCity = ""
+            $ZipCode = ""
         }
-        { $Office -like '*Annapolis*' } { 
-            $OfficeAddress = 
-            $OfficeState = 
-            $OfficeCity = 
-            $ZipCode = 
+        { $Office -like '' } { 
+            $OfficeAddress = ""
+            $OfficeState = ""
+            $OfficeCity = ""
+            $ZipCode = ""
         }
-        { $Office -like '*Galleria*' } { 
-            $OfficeAddress = 
-            $OfficeState = 
-            $OfficeCity = 
-            $ZipCode = 
+        { $Office -like '' } { 
+            $OfficeAddress = ""
+            $OfficeState = ""
+            $OfficeCity = ""
+            $ZipCode = ""
         }
-        { $Office -like '*La Palmera*' } { 
-            $OfficeAddress = 
-            $OfficeState = 
-            $OfficeCity = 
-            $ZipCode = 
+        { $Office -like '' } { 
+            $OfficeAddress = ""
+            $OfficeState = ""
+            $OfficeCity = ""
+            $ZipCode = ""
         }
-        { $Office -like '*MSW*' } { 
-            $OfficeAddress = 
-            $OfficeState = 
-            $OfficeCity = 
-            $ZipCode = 
+        { $Office -like '' } { 
+            $OfficeAddress = ""
+            $OfficeState = ""
+            $OfficeCity = ""
+            $ZipCode = ""
         }
-        { $Office -like '*North Point*' } { 
-            $OfficeAddress = 
-            $OfficeState = 
-            $OfficeCity = 
-            $ZipCode = 
+        { $Office -like '' } { 
+            $OfficeAddress = ""
+            $OfficeState = ""
+            $OfficeCity = ""
+            $ZipCode = ""
         }
-        { $Office -like '*Perkins Rowe*' } {  
-            $OfficeAddress = 
-            $OfficeState = 
-            $OfficeCity = 
-            $ZipCode = 
+        { $Office -like '' } {  
+            $OfficeAddress = ""
+            $OfficeState = ""
+            $OfficeCity = ""
+            $ZipCode = ""
         }
-        { $Office -like '*Saddle Creek*' } { 
-            $OfficeAddress = 
-            $OfficeState = 
-            $OfficeCity = 
-            $ZipCode = 
+        { $Office -like '' } { 
+            $OfficeAddress = ""
+            $OfficeState = ""
+            $OfficeCity = ""
+            $ZipCode = ""
         }
-        { $Office -like '*Zona Rosa*' } { 
-            $OfficeAddress = 
-            $OfficeState = 
-            $OfficeCity = 
-            $ZipCode = 
+        { $Office -like '' } { 
+            $OfficeAddress = ""
+            $OfficeState = ""
+            $OfficeCity = ""
+            $ZipCode = ""
         }
-        { $Office -like '*Legacy Place*' } { 
-            $OfficeAddress = 
-            $OfficeState = 
-            $OfficeCity = 
-            $ZipCode = 
+        { $Office -like '' } { 
+            $OfficeAddress = ""
+            $OfficeState = ""
+            $OfficeCity = ""
+            $ZipCode = ""
         }
     }
 
@@ -1011,7 +1027,7 @@ function New-EmployeeSetup {
         Create-UserCheatSheet -Name $Name -Email $Email -Username $User  -Title $Title -OfficeLocation $OU -PhoneNumber $PhoneNumber 
         Write-Host -ForegroundColor Green "User cheat sheet has been created."
         
-        AddTo-TimeAllocationsTable -ServerInstance $SqlServerInstance -Database  -TableName  -Schema 'dbo' -Name $Name -Title $Title -StartDate $StartDate -Email $Email
+        AddTo-TimeAllocationsTable -ServerInstance $SqlServerInstance -Database '' -TableName '' -Schema 'dbo' -Name $Name -Title $Title -StartDate $StartDate -Email $Email
     }   
 
     Wait-Job $OtherSetup | Out-Null
@@ -1021,7 +1037,7 @@ function New-EmployeeSetup {
     Receive-Job -Job $EmailSetup
 
 } 
-New-EmployeeSetup -DomainController  -DomainName  -SqlServerInstance 
+New-EmployeeOnboarding -DomainController '' -DomainName '' -SqlServerInstance ''
 
 
 
