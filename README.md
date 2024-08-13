@@ -1,2 +1,2 @@
 # PowershellScripts
-Various reusable powershell scripts.
+Various powershell scripts
