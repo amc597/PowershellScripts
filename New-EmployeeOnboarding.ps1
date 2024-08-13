@@ -269,7 +269,7 @@ function New-EmployeeOnboarding {
             [string]
             $Schema                
         )
-        if (($OU -like '') -and ($Title -notlike '*Intern*')) {
+        if (($OU -like 'OU=,DC=,DC=') -and ($Title -notlike '*Intern*')) {
             $GetLastID = Invoke-Sqlcmd -Query "SELECT Top 1 ID,Name,Email,StartDate FROM [$Database].[$Schema].[$TableName] Order by ID Desc" `
                 -ServerInstance $ServerInstance -Database $Database -TrustServerCertificate  
             $ID = $GetLastID.ID + 1
@@ -329,7 +329,7 @@ function New-EmployeeOnboarding {
                 }
                 else { Write-Host -ForegroundColor Red "$Name has NOT been added to $TableName" }            
             }
-            Check-SqlRow -ServerInstance $SqlServerInstance -Database 's' -TableName '' -Schema 'dbo' -Name $Name
+            Check-SqlRow -ServerInstance $SqlServerInstance -Database '' -TableName '' -Schema 'dbo' -Name $Name
         }
         else { Write-Host -ForegroundColor Red "$Name has not been added to the table." }
     } 
