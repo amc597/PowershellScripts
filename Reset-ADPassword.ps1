@@ -67,7 +67,7 @@ function Reset-ADPassword {
         }
         return $userInput
     }
-    function Check-IfAccountExists {  
+       function Check-IfAccountExists {  
         [CmdletBinding()]
         param (
             [Parameter(Mandatory)]
@@ -86,7 +86,7 @@ function Reset-ADPassword {
                 $Password = $Credentials.GetNetworkCredential().password
                 $CurrentDomain = "LDAP://" + ([ADSI]"").distinguishedName
                 $Domain = New-Object System.DirectoryServices.DirectoryEntry($CurrentDomain, $Username, $Password)
-           
+               
                 if ($Domain.name -eq $null) {
                     Write-Host -ForegroundColor Red "Authentication failed - please verify your username and password."
                     exit 
@@ -104,9 +104,9 @@ function Reset-ADPassword {
                             $Last += $SplitName[$i]
                         }
                         $User = $SplitName[0].Substring(0, 1) + $Last 
-                    
+                        
                         $CheckForUser = Invoke-Command -ComputerName $DomainController -ScriptBlock {
-                            Get-ADUser -Filter { samaccountname -eq $Using:Name } 
+                            Get-ADUser -Filter { samaccountname -eq $Using:User } 
                         } -Credential $Credentials
                         return $CheckForUser
                     }
