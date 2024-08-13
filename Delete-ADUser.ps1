@@ -1,4 +1,4 @@
-function Delete-ADUser{
+function Delete-ADUser {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
@@ -48,17 +48,19 @@ function Delete-ADUser{
         }
         return $userInput
     }
-    function Check-IfAccountExists {    
+    function Check-IfAccountExists {  
         [CmdletBinding()]
-        param(
+        param (
             [Parameter(Mandatory)]
             [string]
             $Name,
             [Parameter(Mandatory)]
             [string]
             $InputType,
+            [Parameter(Mandatory)]
+            [pscredential]
             $Credentials
-        )    
+        )      
         switch ($InputType) {
             "Admin" {
                 $Username = $Credentials.username
@@ -76,17 +78,25 @@ function Delete-ADUser{
             }
             "Name" {
                 if ($Name) {
-                    $SplitName = $Name.split(" ")
-                    $Last = @() -join '' -replace '\s'
-                    for ($i = 1; $i -lt $SplitName.Count; $i++) {
-                        $Last += $SplitName[$i]
+                    if ($Name.Contains(" ")) {
+                        $SplitName = $Name.split(" ")
+                        $Last = @() -join '' -replace '\s'
+                        for ($i = 1; $i -lt $SplitName.Count; $i++) {
+                            $Last += $SplitName[$i]
+                        }
+                        $User = $SplitName[0].Substring(0, 1) + $Last 
+                        
+                        $CheckForUser = Invoke-Command -ComputerName $DomainController -ScriptBlock {
+                            Get-ADUser -Filter { samaccountname -eq $Using:Name } 
+                        } -Credential $Credentials
+                        return $CheckForUser
                     }
-                    $User = $SplitName[0].Substring(0, 1) + $Last
-            
-                    $CheckForUser = Invoke-Command -ComputerName $DomainController -ScriptBlock {
-                        Get-ADUser -Filter { samaccountname -eq $Using:User } 
-                    } -Credential $Credentials 
-                    return $CheckForUser 
+                    else {
+                        $CheckForUser = Invoke-Command -ComputerName $DomainController -ScriptBlock {
+                            Get-ADUser -Filter { samaccountname -eq $Using:Name } 
+                        } -Credential $Credentials
+                        return $CheckForUser
+                    }                     
                 }
                 elseif (!$Name) {
                     Write-Host -ForegroundColor Red "A name has not been provided."
@@ -120,42 +130,28 @@ function Delete-ADUser{
     $Name = Get-UserInput -InputType "Name" -Regex '^\s|\s{2,}|\s$|\d|\0|[^a-zA-Z\s]' -FailMessage "Please provide a valid name."
     if (!$Name) { return }
     if (!(Check-IfAccountExists -Name $Name -InputType "Name" -Credentials $Creds)) { 
-        Write-Host -ForegroundColor Red "$Name not found" 
+        Write-Host -ForegroundColor Red "$Name not found in AD." 
         $Name = $null
         return
     }
+    else { $Name = $CheckForUser.SamAccountName }
 
-    $SplitName = $Name.split(" ")
-    $First = $SplitName[0]
-    $Last = @() -join '' -replace '\s'
-    for ($i = 1; $i -lt $SplitName.Count; $i++) {
-        $Last += $SplitName[$i]
-    }
-    $User = $First.Substring(0, 1) + $Last
-
-    Invoke-Command -ComputerName $DomainController -ScriptBlock {
+    Invoke-Command -ComputerName $DomainController -Credential $Creds -ScriptBlock {
         try {
-            Get-ADUser -Filter { samaccountname -eq $Using:User } | Remove-ADUser -Confirm
+            Get-ADUser -Filter { samaccountname -eq $Using:Name } | Remove-ADUser -Confirm
         }
         catch {
             Write-Host -ForegroundColor Red "Error removing $Using:Name"
         }
         finally {
-            if (!(Get-ADUser -Filter { samaccountname -eq $Using:User } )) {
+            if (!(Get-ADUser -Filter { samaccountname -eq $Using:Name } )) {
                 Write-Host -ForegroundColor Green "$Using:Name has been removed"
             }
             else {
                 Write-Host -ForegroundColor Red "$Using:Name has not been removed"
             }
         }
-    } -Credential $Creds
+    } 
 
 } 
 Delete-ADUser -DomainController "tm-dc05"
-
-
-
-
-
-
-
