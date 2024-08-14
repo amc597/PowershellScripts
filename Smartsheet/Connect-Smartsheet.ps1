@@ -44,7 +44,7 @@ function Connect-Smartsheet {
 
         $RowArrayParameter = [System.Management.Automation.RuntimeDefinedParameter]::new($RowArrayParameterName, $RowArrayParameterType, $RowArrayParameterAttributes)
 
-        if ($MethodType -eq 'Post') {
+        if ({$MethodType -eq 'Post' -or {$MethodType -eq 'Put'}}) {
             $DynamicParamsToShow.Add($UrlParameterName, $UrlParameter)
             $DynamicParamsToShow.Add($BodyParameterName, $BodyParameter)
         }
@@ -71,14 +71,23 @@ function Connect-Smartsheet {
                 $headers.Add("Content-Type", "application/json")
                 $url = "https://api.smartsheet.com/2.0/sheets/$sheetId/$URL"
 
-                $response = Invoke-RestMethod -Uri $url -Headers $headers -Method POST -Body ($body | ConvertTo-Json)
+                $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType -Body ($body | ConvertTo-Json)
+                return $response
+            }
+            "Put" {
+                $headers = @{}
+                $headers.Add("Authorization", "Bearer " + $apiKey)
+                $headers.Add("Content-Type", "application/json")
+                $url = "https://api.smartsheet.com/2.0/sheets/$sheetId/$URL"            
+
+                $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType -Body ($body | ConvertTo-Json)
                 return $response
             }
             "Delete" {
                 $headers = @{}
                 $headers.Add("Authorization", "Bearer " + $APIKey) 
                 $url = "https://api.smartsheet.com/2.0/sheets/$SheetID/rows?ids=$($RowArray)"
-                $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Delete 
+                $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType
             }
         }
     }

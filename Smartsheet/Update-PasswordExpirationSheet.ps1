@@ -32,12 +32,6 @@ function Update-PasswordExpirationSheet {
 
             $userInput = switch ($InputType) {
                 "Admin" { Read-Host "Enter your domain admin username" }
-                "Name" { Read-Host "Enter the employees FULL NAME" }
-                "Title" { Read-Host "Enter the employees TITLE" }
-                "Manager" { Read-Host "Enter the employees MANAGER" }
-                "DoorCode" { Read-Host "Enter the FW door code" }
-                "Date" { Read-Host "Enter the employees START DATE" }
-                "Office" { Read-Host "Enter the employees OFFICE LOCATION" }
             }
 
             if ($userInput -match $Regex -or $userInput -eq "") { 
@@ -69,7 +63,7 @@ function Update-PasswordExpirationSheet {
         }
         return $userInput
     }
-        function Check-IfAccountExists {  
+    function Check-IfAccountExists {  
         [CmdletBinding()]
         param (
             [Parameter(Mandatory)]
@@ -84,10 +78,10 @@ function Update-PasswordExpirationSheet {
         )      
         switch ($InputType) {
             "Admin" {
-                $Username = $Credentials.username
+                $username = $Credentials.username
                 $Password = $Credentials.GetNetworkCredential().password
                 $CurrentDomain = "LDAP://" + ([ADSI]"").distinguishedName
-                $Domain = New-Object System.DirectoryServices.DirectoryEntry($CurrentDomain, $Username, $Password)
+                $Domain = New-Object System.DirectoryServices.DirectoryEntry($CurrentDomain, $username, $Password)
                
                 if ($Domain.name -eq $null) {
                     Write-Host -ForegroundColor Red "Authentication failed - please verify your username and password."
@@ -105,7 +99,7 @@ function Update-PasswordExpirationSheet {
                         for ($i = 1; $i -lt $SplitName.Count; $i++) {
                             $Last += $SplitName[$i]
                         }
-                        $User = $SplitName[0].Substring(0, 1) + $Last 
+                        $user = $SplitName[0].Substring(0, 1) + $Last 
                         
                         $CheckForUser = Invoke-Command -ComputerName $DomainController -ScriptBlock {
                             Get-ADUser -Filter { samaccountname -eq $Using:User } 
@@ -125,41 +119,118 @@ function Update-PasswordExpirationSheet {
             }
         }
     }
-    function Connect-SmartsheetGET {
-        param(
-            $SheetID,
-            $APIKey        
+    function Connect-Smartsheet {
+        [CmdletBinding()]
+        param (
+            [Parameter(Mandatory)]
+            [string]
+            $SheetId,
+            [Parameter(Mandatory)]
+            [string]
+            $ApiKey,
+            [Parameter(Mandatory)]
+            [string]
+            $MethodType
         )
-
-        if (!$APIKey -or !$SheetID) {
-            return
+        DynamicParam {
+            $DynamicParamsToShow = [System.Management.Automation.RuntimeDefinedParameterDictionary]::new()
+    
+            $UrlParameterName = "Url"
+            $UrlParameterType = [string]
+            $UrlParameterAttributes = [System.Collections.ObjectModel.Collection[System.Attribute]]::new()
+    
+            $UrlAttribute = [System.Management.Automation.ParameterAttribute]::new()
+            $UrlAttribute.Mandatory = $true
+            $UrlParameterAttributes.Add($UrlAttribute)
+    
+            $UrlParameter = [System.Management.Automation.RuntimeDefinedParameter]::new($UrlParameterName, $UrlParameterType, $UrlParameterAttributes)
+    
+            $BodyParameterName = "Body"
+            $BodyParameterType = [hashtable]
+            $BodyParameterAttributes = [System.Collections.ObjectModel.Collection[System.Attribute]]::new()
+    
+            $BodyAttribute = [System.Management.Automation.ParameterAttribute]::new()
+            $BodyAttribute.Mandatory = $true
+            $BodyParameterAttributes.Add($BodyAttribute)
+    
+            $BodyParameter = [System.Management.Automation.RuntimeDefinedParameter]::new($BodyParameterName, $BodyParameterType, $BodyParameterAttributes)
+    
+            $RowArrayParameterName = "RowArray"
+            $RowArrayParameterType = [array]
+            $RowArrayParameterAttributes = [System.Collections.ObjectModel.Collection[System.Attribute]]::new()
+    
+            $RowArrayAttribute = [System.Management.Automation.ParameterAttribute]::new()
+            $RowArrayAttribute.Mandatory = $true
+            $RowArrayParameterAttributes.Add($RowArrayAttribute)
+    
+            $RowArrayParameter = [System.Management.Automation.RuntimeDefinedParameter]::new($RowArrayParameterName, $RowArrayParameterType, $RowArrayParameterAttributes)
+    
+            if ({$MethodType -eq 'Post' -or {$MethodType -eq 'Put'}}) {
+                $DynamicParamsToShow.Add($UrlParameterName, $UrlParameter)
+                $DynamicParamsToShow.Add($BodyParameterName, $BodyParameter)
+            }
+            elseif ($MethodType -eq 'Delete') {
+                $DynamicParamsToShow.Add($RowArrayParameterName, $RowArrayParameter)
+            }
+            return $DynamicParamsToShow
         }
-        $get_headers = $null
-        $get_headers = @{}
-        $get_headers.add("Authorization", "Bearer " + $APIKey)
-        $url = $url = "https://api.smartsheet.com/2.0/sheets/" + $SheetID
-
-        $response = Invoke-RestMethod -Uri $url -Headers $get_headers -Method GET 
-        return $response
+        end
+        {
+            switch ($MethodType) {
+                "Get" {
+                    $headers = $null
+                    $headers = @{}
+                    $headers.add("Authorization", "Bearer " + $ApiKey)
+                    $url = $url = "https://api.smartsheet.com/2.0/sheets/" + $SheetId
+            
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType 
+                    return $response
+                }
+                "Post" {
+                    $headers = @{}
+                    $headers.Add("Authorization", "Bearer " + $apiKey)
+                    $headers.Add("Content-Type", "application/json")
+                    $url = "https://api.smartsheet.com/2.0/sheets/$sheetId/$URL"
+    
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType -Body ($body | ConvertTo-Json)
+                    return $response
+                }
+                "Put" {
+                    $headers = @{}
+                    $headers.Add("Authorization", "Bearer " + $apiKey)
+                    $headers.Add("Content-Type", "application/json")
+                    $url = "https://api.smartsheet.com/2.0/sheets/$sheetId/$URL"            
+    
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType -Body ($body | ConvertTo-Json)
+                    return $response
+                }
+                "Delete" {
+                    $headers = @{}
+                    $headers.Add("Authorization", "Bearer " + $APIKey) 
+                    $url = "https://api.smartsheet.com/2.0/sheets/$SheetID/rows?ids=$($RowArray)"
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType
+                }
+            }
+        }
     }
-
-    $Creds = Get-Secret AdminCreds
-    if (!$Creds) {
-        $Admin = $null
-        $Admin = Get-UserInput -InputType "Admin" -Regex '[^a-zA-Z]' -FailMessage "Please provide a valid domain admin username." 
-        if (!$Admin) { return }
-        else { $AdminUser = 'tmark\' + $Admin }
-        $Creds = Get-Credential $AdminUser
-        if (Check-IfAccountExists -Name $Admin -InputType "Admin" -Credentials $Creds) { 
-            Write-Host -ForegroundColor Red "$Admin account not found" 
-            $Admin = $null
+    
+    $creds = Get-Secret AdminCreds
+    if (!$creds) {
+        $admin = $null
+        $admin = Get-UserInput -InputType "Admin" -Regex '[^a-zA-Z]' -FailMessage "Please provide a valid domain admin username." 
+        if (!$admin) { return }
+        else { $adminUser = ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name.Split('\') | select -First 1) + '\' + $admin }
+        $creds = Get-Credential $adminUser
+        if (Check-IfAccountExists -Name $admin -InputType "Admin" -Credentials $creds) { 
+            Write-Host -ForegroundColor Red "$admin account not found" 
+            $admin = $null
             return
         }
     }
     else {
-        if (!(Check-IfAccountExists -Name $Creds -InputType "Admin" -Credentials $Creds)) { 
-            Write-Host -ForegroundColor Red "$Creds account not found" 
-            $Admin = $null
+        if (!(Check-IfAccountExists -Name $creds -InputType "Admin" -Credentials $creds)) { 
+            Write-Host -ForegroundColor Red "$creds account not found" 
+            $admin = $null
             return
         }
     }
@@ -167,78 +238,64 @@ function Update-PasswordExpirationSheet {
     $apikey = (Get-Secret SmartsheetPasswordExpiration -AsPlainText).Secret
     $sheetid = (Get-Secret SmartsheetPasswordExpiration -AsPlainText).SheetID
 
-    $response = Connect-SmartsheetGET -SheetID $sheetid -APIKey $apikey
-    $Columns = $response.columns | Where-Object { ($_.title -like "Contact") -or ($_.title -like "Expiration Data") }
-    $EmailID = $Columns | Where-Object { $_.title -eq "Contact" }
-    $DateID = $Columns | Where-Object { $_.title -eq "Expiration Data" }
-    $Bothrows = $response.rows
+    $response = Connect-Smartsheet -ApiKey $apikey -SheetId $sheetid -MethodType 'Get'
+    $columns = $response.columns | Where-Object { ($_.title -like "Contact") -or ($_.title -like "Expiration Data") }
+    $emailId = $columns | Where-Object { $_.title -eq "Contact" }
+    $dateId = $columns | Where-Object { $_.title -eq "Expiration Data" }
+    $bothRows = $response.rows
 
-    $put_headers = @{}
-    $put_headers.Add("Authorization", "Bearer " + $APIKey)
-    $put_headers.Add("Content-Type", "application/json")
-    $purl = "https://api.smartsheet.com/2.0/sheets/$SheetID/rows"
+    $userInfo = @()
+    $deleteUser = @() 
 
-    $UserInfo = @()
-    $DeleteUser = @() 
-
-    foreach ($row in $Bothrows) {    
-        $User = ($row.cells | Where-Object { $_.columnid -eq $EmailID.id }).value -replace "@.+$", ""    
+    foreach ($row in $bothRows) {    
+        $user = ($row.cells | Where-Object { $_.columnid -eq $emailId.id }).value -replace "@.+$", ""    
         try {
-            $CheckForUser = Check-IfAccountExists -Name $User -InputType 'Name' -Credentials $Creds
+            $checkForUser = Check-IfAccountExists -Name $user -InputType 'Name' -Credentials $creds
         }
         catch {
             Write-Host "There was an issue."
         }
 
-        if (!$CheckForUser) {
-            Write-Host "$User not found in AD"
-            $DeleteUser = [PSCustomObject]@{
+        if (!$checkForUser) {
+            Write-Host "$user not found in AD"
+            $deleteUser = [PSCustomObject]@{
                 Id       = $row.id
-                Username = $User
+                Username = $user
             }
-
-            $Delete_headers = @{}
-            $Delete_headers.Add("Authorization", "Bearer " + $APIKey) 
-            $Deleteurl = "https://api.smartsheet.com/2.0/sheets/$SheetID/rows?ids=$($DeleteUser.Id)"
-            $Deleteresponse = Invoke-RestMethod -Uri $Deleteurl -Headers $Delete_headers -Method Delete
+            $response = Connect-Smartsheet -ApiKey $apikey -SheetId $sheetid -MethodType 'Delete' -RowArray $($deleteUser.Id)
         }
 
-        if ($CheckForUser) {
-            $Date = Invoke-Command -ComputerName $DomainController -Credential $Creds -ArgumentList $User -ScriptBlock {
+        if ($checkForUser) {
+            $date = Invoke-Command -ComputerName $DomainController -Credential $creds -ArgumentList $user -ScriptBlock {
                 param($userName)
                 Get-ADUser $userName -Properties msDS-UserPasswordExpiryTimeComputed, UserPrincipalName, PasswordNeverExpires, PasswordLastSet
             } 
-            $ReadableDate = If ($Date.'msDS-UserPasswordExpiryTimeComputed' -eq 0) { (Get-Date).ToString('yyy-MM-ddTHH:MM:ss' + 'Z') } elseif ($Date.PasswordNeverExpires -eq 'True') { ($Date.PasswordLastSet.AddMonths(6).ToString('yyy-MM-ddTHH:MM:ss' + 'Z')) } elseif (!$Date) { $DeleteUser += $row.id } else { [DateTime]::FromFiletime([Int64]::Parse($Date.'msDS-UserPasswordExpiryTimeComputed')).ToString('yyy-MM-ddTHH:MM:ss' + 'Z') }   
+            $readableDate = If ($date.'msDS-UserPasswordExpiryTimeComputed' -eq 0) { (Get-Date).ToString('yyy-MM-ddTHH:MM:ss' + 'Z') } elseif ($date.PasswordNeverExpires -eq 'True') { ($date.PasswordLastSet.AddMonths(6).ToString('yyy-MM-ddTHH:MM:ss' + 'Z')) } elseif (!$date) { $deleteUser += $row.id } else { [DateTime]::FromFiletime([Int64]::Parse($date.'msDS-UserPasswordExpiryTimeComputed')).ToString('yyy-MM-ddTHH:MM:ss' + 'Z') }   
     
-            $UserInfo = [PSCustomObject]@{
+            $userInfo = [PSCustomObject]@{
                 Id       = $row.id
-                Username = $User
-                Date     = $ReadableDate
+                Username = $user
+                Date     = $readableDate
             }
-            $putbody = @{
-                "id"    = "$($UserInfo.Id)"
+            $putBody = @{
+                "id"    = "$($userInfo.Id)"
                 "cells" = @(
                     @{
-                        "columnId" = "$($DateID.id)"
-                        "value"    = "$($UserInfo.Date)"                
+                        "columnId" = "$($dateId.id)"
+                        "value"    = "$($userInfo.Date)"                
                     })       
-            }
-            $PUTresponse = Invoke-RestMethod -Uri $purl -Headers $put_headers -Method PUT -Body ($putbody | ConvertTo-Json)    
+            }   
+            $response = Connect-Smartsheet -ApiKey $apikey -SheetId $sheetid -MethodType 'Put' -Body $putBody -Url 'rows'
         }    
     }
-
-    $post_headers = @{}
-    $post_headers.Add("Authorization", "Bearer " + $APIKey)
-    $post_headers.Add("Content-Type", "application/json")
-    $posturl = "https://api.smartsheet.com/2.0/sheets/$SheetID/sort"
 
     $postbody = @{
         "sortCriteria" = @(
             @{
-                "columnId"  = "$($DateID.id)"
+                "columnId"  = "$($dateId.id)"
                 "direction" = "ASCENDING"
             })
     }
-    $POSTresponse = Invoke-RestMethod -Uri $posturl -Headers $post_headers -Method POST -Body ($postbody | ConvertTo-Json)
+    $response = Connect-Smartsheet -ApiKey $apikey -SheetId $sheetid -MethodType 'Post' -Url 'sort' -Body $postbody
 }
 Update-PasswordExpirationSheet -DomainController ""
