@@ -226,7 +226,7 @@ function Reset-ADPassword {
     $Name = $null
     $Name = Get-UserInput -InputType "Name" -Regex '^\s|\s{2,}|\s$|\d|\0|[^a-zA-Z\s]' -FailMessage "Please provide a valid name."
     if (!$Name) { return }
-    if (!(Check-IfAccountExists -Name $Name -InputType "Name" -Credentials $Creds)) { 
+    if (!($CheckForUser = Check-IfAccountExists -Name $Name -InputType "Name" -Credentials $Creds)) { 
         Write-Host -ForegroundColor Red "$Name not found in AD." 
         $Name = $null
         return

@@ -11,52 +11,90 @@ function New-EmployeeOnboarding {
         [string]
         $SqlServerInstance
     )
-    function Connect-SmartsheetGET {
+    function Connect-Smartsheet {
         [CmdletBinding()]
         param (
             [Parameter(Mandatory)]
             [string]
-            $sheetId,
+            $SheetId,
             [Parameter(Mandatory)]
             [string]
-            $apiKey
+            $ApiKey,
+            [Parameter(Mandatory)]
+            [string]
+            $MethodType
         )
-       
-        if (!$apiKey -or !$sheetId) {
-            return
+        DynamicParam {
+            $DynamicParamsToShow = [System.Management.Automation.RuntimeDefinedParameterDictionary]::new()
+    
+            $UrlParameterName = "Url"
+            $UrlParameterType = [string]
+            $UrlParameterAttributes = [System.Collections.ObjectModel.Collection[System.Attribute]]::new()
+    
+            $UrlAttribute = [System.Management.Automation.ParameterAttribute]::new()
+            $UrlAttribute.Mandatory = $true
+            $UrlParameterAttributes.Add($UrlAttribute)
+    
+            $UrlParameter = [System.Management.Automation.RuntimeDefinedParameter]::new($UrlParameterName, $UrlParameterType, $UrlParameterAttributes)
+    
+            $BodyParameterName = "Body"
+            $BodyParameterType = [hashtable]
+            $BodyParameterAttributes = [System.Collections.ObjectModel.Collection[System.Attribute]]::new()
+    
+            $BodyAttribute = [System.Management.Automation.ParameterAttribute]::new()
+            $BodyAttribute.Mandatory = $true
+            $BodyParameterAttributes.Add($BodyAttribute)
+    
+            $BodyParameter = [System.Management.Automation.RuntimeDefinedParameter]::new($BodyParameterName, $BodyParameterType, $BodyParameterAttributes)
+    
+            $RowArrayParameterName = "RowArray"
+            $RowArrayParameterType = [array]
+            $RowArrayParameterAttributes = [System.Collections.ObjectModel.Collection[System.Attribute]]::new()
+    
+            $RowArrayAttribute = [System.Management.Automation.ParameterAttribute]::new()
+            $RowArrayAttribute.Mandatory = $true
+            $RowArrayParameterAttributes.Add($RowArrayAttribute)
+    
+            $RowArrayParameter = [System.Management.Automation.RuntimeDefinedParameter]::new($RowArrayParameterName, $RowArrayParameterType, $RowArrayParameterAttributes)
+    
+            if ($MethodType -eq 'Post') {
+                $DynamicParamsToShow.Add($UrlParameterName, $UrlParameter)
+                $DynamicParamsToShow.Add($BodyParameterName, $BodyParameter)
+            }
+            elseif ($MethodType -eq 'Delete') {
+                $DynamicParamsToShow.Add($RowArrayParameterName, $RowArrayParameter)
+            }
+            return $DynamicParamsToShow
         }
-        $get_headers = $null
-        $get_headers = @{}
-        $get_headers.add("Authorization", "Bearer " + $apiKey)
-        $url = $url = "https://api.smartsheet.com/2.0/sheets/" + $sheetId
-
-        $response = Invoke-RestMethod -Uri $url -Headers $get_headers -Method GET 
-        return $response
-    }
-    function Connect-SmartsheetPOST {
-        [CmdletBinding()]
-        param (
-            [Parameter(Mandatory)]
-            [string]
-            $sheetId,
-            [Parameter(Mandatory)]
-            [string]
-            $apiKey,
-            [Parameter(Mandatory)]
-            [string]        
-            $URL,
-            [Parameter(Mandatory)]
-            [string]
-            $postbody      
-        )
-        $post_headers = @{}
-        $post_headers.Add("Authorization", "Bearer " + $apiKey)
-        $post_headers.Add("Content-Type", "application/json")
-        $posturl = "https://api.smartsheet.com/2.0/sheets/$sheetId/$URL"
-
-        $PostResponse = Invoke-RestMethod -Uri $posturl -Headers $post_headers -Method POST -Body ($postbody | ConvertTo-Json)
-        return $PostResponse
-    }
+        end {
+            switch ($MethodType) {
+                "Get" {
+                    $headers = $null
+                    $headers = @{}
+                    $headers.add("Authorization", "Bearer " + $ApiKey)
+                    $url = $url = "https://api.smartsheet.com/2.0/sheets/" + $SheetId
+            
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType 
+                    return $response
+                }
+                "Post" {
+                    $headers = @{}
+                    $headers.Add("Authorization", "Bearer " + $apiKey)
+                    $headers.Add("Content-Type", "application/json")
+                    $url = "https://api.smartsheet.com/2.0/sheets/$sheetId/$URL"
+    
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method POST -Body ($body | ConvertTo-Json)
+                    return $response
+                }
+                "Delete" {
+                    $headers = @{}
+                    $headers.Add("Authorization", "Bearer " + $APIKey) 
+                    $url = "https://api.smartsheet.com/2.0/sheets/$SheetID/rows?ids=$($RowArray)"
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Delete 
+                }
+            }
+        }
+    }   
     function Get-NewEmployeeInfo {
         [CmdletBinding()]
         param (
@@ -67,23 +105,34 @@ function New-EmployeeOnboarding {
         $apiKey = (Get-Secret SmartsheetNewEmployee -AsPlainText).Secret
         $sheetId = (Get-Secret SmartsheetNewEmployee -AsPlainText).SheetID
     
-        $response = Connect-SmartsheetGET -SheetID $sheetId -APIKey $apiKey
-        $Columns = $response.columns | Where-Object { ($_.title -like "Name") -or ($_.title -like "Phone Number") -or ($_.title -like "Start Date") -or ($_.title -like "Manager") -or ($_.title -like "Title") -or ($_.title -like "Office Location") }
-        $NameID = $Columns | Where-Object { $_.title -eq "Name" }
-        $ManagerID = $Columns | Where-Object { $_.title -eq "Manager" }
-        $TitleID = $Columns | Where-Object { $_.title -eq "Title" }
-        $PhoneNumberID = $Columns | Where-Object { $_.title -eq "Phone Number" }
-        $StartDateID = $Columns | Where-Object { $_.title -eq "Start Date" }
-        $OfficeID = $Columns | Where-Object { $_.title -eq "Office Location" }
-        $Rows = $response.rows
+        $response = Connect-Smartsheet -SheetID $sheetId -APIKey $apiKey -MethodType 'Get'
+        $columns = $response.columns | Where-Object { ($_.title -like "Name") -or ($_.title -like "Phone Number") -or ($_.title -like "Start Date") -or ($_.title -like "Manager") -or ($_.title -like "Title") -or ($_.title -like "Office Location") }
+        $nameId = $columns | Where-Object { $_.title -eq "Name" }
+        $ManagerID = $columns | Where-Object { $_.title -eq "Manager" }
+        $TitleID = $columns | Where-Object { $_.title -eq "Title" }
+        $PhoneNumberID = $columns | Where-Object { $_.title -eq "Phone Number" }
+        $StartDateID = $columns | Where-Object { $_.title -eq "Start Date" }
+        $OfficeID = $columns | Where-Object { $_.title -eq "Office Location" }
+        $rows = $response.rows
 
-        $UserRow = $Rows | where { $_.cells.displayValue -eq $Name }
+        $UserRow = $rows | where { $_.cells.displayValue -eq $Name }
         $UserPhoneNumber = $UserRow.cells | where { $_.columnId -eq $PhoneNumberID.id } | select displayValue
         $UserStartDate = $UserRow.cells | where { $_.columnId -eq $StartDateID.id } | select value
         $UserTitle = $UserRow.cells | where { $_.columnId -eq $TitleID.id } | select value
         $UserManager = $UserRow.cells | where { $_.columnId -eq $ManagerID.id } | select value
         $UserOffice = $UserRow.cells | where { $_.columnId -eq $OfficeID.id } | select value
-        
+
+        if ($UserPhoneNumber.displayValue -eq $null) {             
+             $UserPhoneNumber = @{
+                displayValue = '817-870-1122'
+            }
+        }
+        if ($UserStartDate.value -eq $null) {
+            $UserStartDate = @{
+                value = Get-Date -Format "yyyy-MM-dd"
+            }
+        }
+
         $StartDate = (Get-Date $UserStartDate.value -Format "MM/dd/yyyy")
         $PhoneNumber = $UserPhoneNumber.displayValue
         $Manager = $UserManager.value
@@ -91,7 +140,7 @@ function New-EmployeeOnboarding {
         $Office = $UserOffice.value
 
         return $StartDate, $Manager, $Title, $PhoneNumber, $Office
-    } 
+    }
     function Get-UserInput {
         [CmdletBinding()]
         param (
@@ -155,7 +204,7 @@ function New-EmployeeOnboarding {
         }
         return $userInput
     }
-      function Check-IfAccountExists {  
+    function Check-IfAccountExists {  
         [CmdletBinding()]
         param (
             [Parameter(Mandatory)]
@@ -386,12 +435,12 @@ function New-EmployeeOnboarding {
         $apiKey = (Get-Secret SmartsheetPasswordExpiration -AsPlainText).Secret
         $sheetId = (Get-Secret SmartsheetPasswordExpiration -AsPlainText).SheetID    
 
-        $response = Connect-SmartsheetGET -SheetID $sheetId -APIKey $apiKey
-        $Columns = $response.columns | Where-Object { ($_.title -like "Primary Column") -or ($_.title -like "Contact") -or ($_.title -like "Expiration Data") }
-        $ContactID = $Columns | Where-Object { $_.title -eq "Contact" }
-        $DateID = $Columns | Where-Object { $_.title -eq "Expiration Data" }
-        $PrimaryID = $Columns | Where-Object { $_.title -eq "Primary Column" }
-        $Rows = $response.rows
+        $response = Connect-Smartsheet -SheetID $sheetId -APIKey $apiKey -MethodType 'Get'
+        $columns = $response.columns | Where-Object { ($_.title -like "Primary Column") -or ($_.title -like "Contact") -or ($_.title -like "Expiration Data") }
+        $contactId = $columns | Where-Object { $_.title -eq "Contact" }
+        $dateId = $columns | Where-Object { $_.title -eq "Expiration Data" }
+        $primaryId = $columns | Where-Object { $_.title -eq "Primary Column" }
+        $rows = $response.rows
 
         $SplitName = $Name.split(" ")
         $First = $SplitName[0]
@@ -399,24 +448,24 @@ function New-EmployeeOnboarding {
         for ($i = 1; $i -lt $SplitName.Count; $i++) {
             $Last += $SplitName[$i]
         }
-        $PrimaryColumnName = $Last + ',' + " " + $First
-        $Url = "rows"
+        $primaryColumnName = $Last + ',' + " " + $First
+        $url = "rows"
 
-        $PostBody = @{
+        $postBody = @{
             "toBottom" = "true"
             "cells"    = @(
                 @{
-                    "columnId" = "$($PrimaryID.id)"
-                    "value"    = "$($PrimaryColumnName)"                 
+                    "columnId" = "$($primaryId.id)"
+                    "value"    = "$($primaryColumnName)"                 
                 }
                 @{
-                    "columnId"     = "$($ContactID.id)"
+                    "columnId"     = "$($contactId.id)"
                     "value"        = "$($Email)" 
                     "displayValue" = "$($Name)" 
                 }
             )
         }
-        $PostResponse = Connect-SmartsheetPOST -SheetID $sheetId -APIKey $apiKey -URL $Url -postbody $PostBody        
+        $response = Connect-Smartsheet -SheetID $sheetId -APIKey $apiKey -MethodType 'Post' -Url $url -Body $postBody      
     } 
     function AddTo-TMADFSheet {
         [CmdletBinding()]
@@ -432,39 +481,39 @@ function New-EmployeeOnboarding {
         $sheetId = (Get-Secret SmartsheetTMADF -AsPlainText).SheetID
     
         $response = Connect-SmartsheetGET -SheetID $sheetId -APIKey $apiKey
-        $Columns = $response.columns | Where-Object { ($_.title -like "Name") -or ($_.title -like "Email") }
-        $NameID = $Columns | Where-Object { $_.title -eq "Name" }
-        $EmailID = $Columns | Where-Object { $_.title -eq "Email" }
-        $Rows = $response.rows
+        $columns = $response.columns | Where-Object { ($_.title -like "Name") -or ($_.title -like "Email") }
+        $nameId = $columns | Where-Object { $_.title -eq "Name" }
+        $emailId = $columns | Where-Object { $_.title -eq "Email" }
+        $rows = $response.rows
     
         $Url = "rows"
     
-        $PostBody = @{
+        $postBody = @{
             "toBottom" = "true"
             "cells"    = @(
                 @{
-                    "columnId" = "$($NameID.id)"
+                    "columnId" = "$($nameId.id)"
                     "value"    = "$($Name)" 
                     
                 }
                 @{
-                    "columnId" = "$($EmailID.id)"
+                    "columnId" = "$($emailId.id)"
                     "value"    = "$($Email)" 
     
                 })
         }
-        $PostResponse = Connect-SmartsheetPOST -SheetID $sheetId -APIKey $apiKey -URL $Url -postbody $PostBody    
+        $response = Connect-Smartsheet -SheetID $sheetId -APIKey $apiKey -MethodType 'Post' -Url $url -Body $postBody    
 
-        $Url = "sort"
-        $PostBody = @{
+        $url = "sort"
+        $postBody = @{
             "sortCriteria" = @(
                 @{
-                    "columnId"  = "$($NameID.id)"
+                    "columnId"  = "$($nameId.id)"
                     "direction" = "ASCENDING"
                     
                 })
         }
-        $PostResponse = Connect-SmartsheetPOST -SheetID $sheetId -APIKey $apiKey -URL $Url -postbody $PostBody   
+        $response = Connect-Smartsheet -SheetID $sheetId -APIKey $apiKey -MethodType 'Post' -Url $url -Body $postBody  
         
     }
     function Create-UserCheatSheet {
@@ -709,27 +758,27 @@ function New-EmployeeOnboarding {
         }   
     }
    
-    $ModulesNeeded = "Microsoft.PowerShell.SecretStore", "Microsoft.PowerShell.SecretManagement", "Microsoft.Graph", "ExchangeOnlineManagement", "SqlServer"
+    $modulesNeeded = "Microsoft.PowerShell.SecretStore", "Microsoft.PowerShell.SecretManagement", "Microsoft.Graph", "ExchangeOnlineManagement", "SqlServer"
     Install-NeededPackages -PackageName "Nuget" -MinimumVersion "2.8.5.201"  
-    Install-NeededModules -ModuleName $ModulesNeeded   
+    Install-NeededModules -ModuleName $modulesNeeded   
     
-    $Creds = Get-Secret AdminCreds
-    if (!$Creds) {
-        $Admin = $null
-        $Admin = Get-UserInput -InputType "Admin" -Regex '[^a-zA-Z]' -FailMessage "Please provide a valid domain admin username." 
-        if (!$Admin) { return }
-        else { $AdminUser = 'tmark\' + $Admin }
-        $Creds = Get-Credential $AdminUser
-        if (Check-IfAccountExists -Name $Admin -InputType "Admin" -Credentials $Creds) { 
-            Write-Host -ForegroundColor Red "$Admin account not found" 
-            $Admin = $null
+    $creds = Get-Secret AdminCreds
+    if (!$creds) {
+        $admin = $null
+        $admin = Get-UserInput -InputType "Admin" -Regex '[^a-zA-Z]' -FailMessage "Please provide a valid domain admin username." 
+        if (!$admin) { return }
+        else { $adminUser = ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name.Split('\') | select -First 1) + '\' + $admin }
+        $creds = Get-Credential $adminUser
+        if (Check-IfAccountExists -Name $admin -InputType "Admin" -Credentials $creds) { 
+            Write-Host -ForegroundColor Red "$admin account not found" 
+            $admin = $null
             return
         }
     }
     else {
-        if (Check-IfAccountExists -Name $Admin -InputType "Admin" -Credentials $Creds) { 
-            Write-Host -ForegroundColor Red "$Admin account not found" 
-            $Admin = $null
+        if (!(Check-IfAccountExists -Name $creds -InputType "Admin" -Credentials $creds)) { 
+            Write-Host -ForegroundColor Red "$creds account not found" 
+            $admin = $null
             return
         }
     }
@@ -737,12 +786,11 @@ function New-EmployeeOnboarding {
     $Name = $null
     $Name = Get-UserInput -InputType "Name" -Regex '^\s|\s{2,}|\s$|\d|\0|[^a-zA-Z\s]' -FailMessage "Please provide a valid name."
     if (!$Name) { return }
-    if (Check-IfAccountExists -Name $Name -InputType "Name" -Credentials $Creds) { 
+    if ($checkForUser = Check-IfAccountExists -Name $Name -InputType "Name" -Credentials $Creds) { 
         Write-Host -ForegroundColor Red "$Name found in AD." 
         $Name = $null
         return
     }
-    else { $Name = $CheckForUser.SamAccountName }
     
     $Title = @()
     $Manager = @()
@@ -774,16 +822,6 @@ function New-EmployeeOnboarding {
         if (Check-IfAccountExists -Name $Manager -InputType "Name" -Credentials $Creds) { 
             Write-Host -ForegroundColor Green "$Name's manager is $Manager" 
         }        
-    }
-
-    if (!$StartDate) {
-        $StartDate = $null
-        Write-Host -ForegroundColor Red "A start date for $Name was not found in the new employee sheet.`n Please provide a start date using the format 04/01/2024."
-        $StartDate = Get-UserInput -InputType "Date" -Regex '^\s|^[^\/0-9]|\s|[^\/0-9]|\s$|[^\/0-9]$' -RegexMatch '' -FailMessage "Please provide a valid start date."
-        If (!$StartDate) { return }
-    }
-    if (!$PhoneNumber) {
-        $PhoneNumber = '817-870-1122'
     }
 
     if (!$Office) {

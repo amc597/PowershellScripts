@@ -89,6 +89,7 @@ function Update-PasswordExpirationSheet {
                 }
                 else {
                     Write-Host -ForegroundColor Green "Successfully authenticated with domain $($domain.name)"
+                    return $CheckForUser
                 } 
             }
             "Name" {
@@ -165,7 +166,7 @@ function Update-PasswordExpirationSheet {
     
             $RowArrayParameter = [System.Management.Automation.RuntimeDefinedParameter]::new($RowArrayParameterName, $RowArrayParameterType, $RowArrayParameterAttributes)
     
-            if ({$MethodType -eq 'Post' -or {$MethodType -eq 'Put'}}) {
+            if (($MethodType -eq 'Post') -or ($MethodType -eq 'Put')) {
                 $DynamicParamsToShow.Add($UrlParameterName, $UrlParameter)
                 $DynamicParamsToShow.Add($BodyParameterName, $BodyParameter)
             }
@@ -177,38 +178,38 @@ function Update-PasswordExpirationSheet {
         end
         {
             switch ($MethodType) {
-                "Get" {
+                'Get' {
                     $headers = $null
                     $headers = @{}
-                    $headers.add("Authorization", "Bearer " + $ApiKey)
-                    $url = $url = "https://api.smartsheet.com/2.0/sheets/" + $SheetId
+                    $headers.add("Authorization", "Bearer " + $apiKey)
+                    $methodUrl = "https://api.smartsheet.com/2.0/sheets/$sheetId" 
             
-                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType 
+                    $response = Invoke-RestMethod -Uri $methodUrl -Headers $headers -Method $MethodType 
                     return $response
                 }
-                "Post" {
+                'Post' {
                     $headers = @{}
                     $headers.Add("Authorization", "Bearer " + $apiKey)
                     $headers.Add("Content-Type", "application/json")
-                    $url = "https://api.smartsheet.com/2.0/sheets/$sheetId/$URL"
+                    $methodUrl = "https://api.smartsheet.com/2.0/sheets/$sheetId/$($DynamicParamsToShow.Url)"
     
-                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType -Body ($body | ConvertTo-Json)
+                    $response = Invoke-RestMethod -Uri $methodUrl -Headers $headers -Method $MethodType -Body ($($DynamicParamsToShow.Body) | ConvertTo-Json)
                     return $response
                 }
-                "Put" {
+                'Put' {
                     $headers = @{}
                     $headers.Add("Authorization", "Bearer " + $apiKey)
                     $headers.Add("Content-Type", "application/json")
-                    $url = "https://api.smartsheet.com/2.0/sheets/$sheetId/$URL"            
+                    $methodUrl = "https://api.smartsheet.com/2.0/sheets/$sheetId/$($DynamicParamsToShow.Url)"            
     
-                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType -Body ($body | ConvertTo-Json)
+                    $response = Invoke-RestMethod -Uri $methodUrl -Headers $headers -Method $MethodType -Body ($($DynamicParamsToShow.Body) | ConvertTo-Json)
                     return $response
                 }
-                "Delete" {
+                'Delete' {
                     $headers = @{}
-                    $headers.Add("Authorization", "Bearer " + $APIKey) 
-                    $url = "https://api.smartsheet.com/2.0/sheets/$SheetID/rows?ids=$($RowArray)"
-                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType
+                    $headers.Add("Authorization", "Bearer " + $apiKey) 
+                    $methodUrl = "https://api.smartsheet.com/2.0/sheets/$sheetID/rows?ids=$($DynamicParamsToShow.RowArray)"
+                    $response = Invoke-RestMethod -Uri $methodUrl -Headers $headers -Method $MethodType
                 }
             }
         }
@@ -227,13 +228,13 @@ function Update-PasswordExpirationSheet {
             return
         }
     }
-    else {
-        if (!(Check-IfAccountExists -Name $creds -InputType "Admin" -Credentials $creds)) { 
-            Write-Host -ForegroundColor Red "$creds account not found" 
-            $admin = $null
-            return
-        }
-    }
+    # else {
+    #     if (!(Check-IfAccountExists -Name ($creds.UserName.Split('\') | select -Last 1) -InputType "Admin" -Credentials $creds)) { 
+    #         Write-Host -ForegroundColor Red "$($creds.UserName.Split('\') | select -Last 1) account not found" 
+    #         $admin = $null
+    #         return
+    #     }
+    # }
 
     $apikey = (Get-Secret SmartsheetPasswordExpiration -AsPlainText).Secret
     $sheetid = (Get-Secret SmartsheetPasswordExpiration -AsPlainText).SheetID
@@ -298,4 +299,4 @@ function Update-PasswordExpirationSheet {
     }
     $response = Connect-Smartsheet -ApiKey $apikey -SheetId $sheetid -MethodType 'Post' -Url 'sort' -Body $postbody
 }
-Update-PasswordExpirationSheet -DomainController ""
+Update-PasswordExpirationSheet -DomainController "tm-dc05"

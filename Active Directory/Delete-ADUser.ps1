@@ -48,7 +48,7 @@ function Delete-ADUser {
         }
         return $userInput
     }
-        function Check-IfAccountExists {  
+    function Check-IfAccountExists {  
         [CmdletBinding()]
         param (
             [Parameter(Mandatory)]
@@ -96,7 +96,7 @@ function Delete-ADUser {
                             Get-ADUser -Filter { samaccountname -eq $Using:Name } 
                         } -Credential $Credentials
                         return $CheckForUser
-                    }                     
+                    }                   
                 }
                 elseif (!$Name) {
                     Write-Host -ForegroundColor Red "A name has not been provided."
@@ -119,8 +119,8 @@ function Delete-ADUser {
         }
     }
     else {
-        if (Check-IfAccountExists -Name $Admin -InputType "Admin" -Credentials $Creds) { 
-            Write-Host -ForegroundColor Red "$Admin account not found" 
+        if (Check-IfAccountExists -Name $Creds -InputType "Admin" -Credentials $Creds) { 
+            Write-Host -ForegroundColor Red "$Creds account not found" 
             $Admin = $null
             return
         }
@@ -129,7 +129,7 @@ function Delete-ADUser {
     $Name = $null
     $Name = Get-UserInput -InputType "Name" -Regex '^\s|\s{2,}|\s$|\d|\0|[^a-zA-Z\s]' -FailMessage "Please provide a valid name."
     if (!$Name) { return }
-    if (!(Check-IfAccountExists -Name $Name -InputType "Name" -Credentials $Creds)) { 
+    if (!($CheckForUser = Check-IfAccountExists -Name $Name -InputType "Name" -Credentials $Creds)) { 
         Write-Host -ForegroundColor Red "$Name not found in AD." 
         $Name = $null
         return
@@ -152,9 +152,8 @@ function Delete-ADUser {
             }
         }
     } 
-
 } 
-Delete-ADUser -DomainController ""
+Delete-ADUser -DomainController "tm-dc05"
 
 
 
