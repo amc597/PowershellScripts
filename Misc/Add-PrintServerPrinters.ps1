@@ -30,4 +30,4 @@ function Add-PrintServerPrinters {
         }
     }  
 }
-Add-PrintServerPrinters -PrintServer "\\tm-siera"
+Add-PrintServerPrinters -PrintServer ""

@@ -573,51 +573,51 @@ function Remove-Employee([Parameter(Mandatory)][string]$DomainController) {
             else { Write-Host -ForegroundColor Red "NOT removing $Using:Username from $ServerName." }
         }
     }
-    function Delete-ProfileOnConferenceComputer {
+    function Delete-ProfileOnComputersInOU {
         [CmdletBinding()]
         param (
-            [Parameter(Mandatory)]
-            [string]
-            $Name,
             [Parameter(Mandatory)]
             [string]
             $DomainController,
             [Parameter(Mandatory)]
             [string]
-            $SearchBase
+            $SearchBase,
+            [Parameter(Mandatory)]
+            [string]
+            $Username
         )
-        $ConfComputers = Invoke-Command -ComputerName $DomainController -Credential $Creds -ScriptBlock {
-            Get-ADComputer -Filter 'Enabled -eq $true' -SearchBase $SearchBase | select Name
+            
+        $confComputers = Invoke-Command -ComputerName $DomainController -Credential $creds -ScriptBlock {
+            Get-ADComputer -Filter 'Enabled -eq $true' -SearchBase $Using:SearchBase | select Name
         }
-        $ComputersOnline = @()
-        foreach ($Computer in $ConfComputers.Name) {    
-            $IsOnline = Test-Connection $Computer -Count 2 -ErrorAction SilentlyContinue
-            if ($IsOnline.Status -eq "Success") {
-                Write-Host -ForegroundColor Green "$Computer is online"
-                $ComputersOnline += $Computer
+        $computersOnline = @()
+        foreach ($computer in $confComputers.Name) {    
+            $isOnline = Test-Connection $computer -Count 2 -ErrorAction SilentlyContinue
+            if ($isOnline.Status -eq "Success") {
+                Write-Host -ForegroundColor Green "$computer is online"
+                $computersOnline += $computer
             }
-            else { Write-Host -ForegroundColor Red "$Computer is not online" }
+            else { Write-Host -ForegroundColor Red "$computer is not online" }
         }
-    
-        foreach ($Comp in $ComputersOnline) {
-            Invoke-Command -ComputerName $Comp -Credential $Creds -ArgumentList $Attributes -ScriptBlock {
-                param (
-                    $Attributes
-                )
-                $UserProfile = Get-CimInstance -ClassName win32_userprofile  | select sid, localpath | where { $_.LocalPath -eq "C:\Users\$Using:User" }
-                if ($UserProfile) {
-                    Write-Host -ForegroundColor Green "$($UserProfile.localpath) found on $Using:Comp"
-                    Get-CimInstance -ClassName win32_userprofile | where { $_.LocalPath -eq "C:\Users\$Using:User" } | Remove-CimInstance
+        
+        foreach ($comp in $computersOnline) {
+            Invoke-Command -ComputerName $comp -Credential $creds -ScriptBlock {               
+                $userProfile = Get-CimInstance -ClassName win32_userprofile  | select sid, localpath | where { $_.LocalPath -eq "C:\Users\$Using:Username" }
+                if ($userProfile) {
+                    Write-Host -ForegroundColor Green "$($userProfile.localpath) found on $Using:comp"
+                    Get-CimInstance -ClassName win32_userprofile | where { $_.LocalPath -eq "C:\Users\$Using:Username" } | Remove-CimInstance
                 }
-                else { Write-Host -ForegroundColor Red "$Using:User not found on $Using:Comp" }
+                else { Write-Host -ForegroundColor Red "$Using:Username not found on $Using:comp" }
             }
         }
     }
+
 
     $ModulesNeeded = "Microsoft.PowerShell.SecretStore", "Microsoft.PowerShell.SecretManagement", "Microsoft.Graph", "ExchangeOnlineManagement", "SqlServer"
     Install-NeededPackages -PackageName "Nuget" -MinimumVersion "2.8.5.201"  
     Install-NeededModules -ModuleName $ModulesNeeded   
     
+    Import-Clixml (Join-Path (Split-Path $Profile) SecretStoreCreds.ps1.credential) | Unlock-SecretStore -PasswordTimeout 60
     $Creds = Get-Secret AdminCreds
     if (!$Creds) {
         $Admin = $null
@@ -735,7 +735,7 @@ function Remove-Employee([Parameter(Mandatory)][string]$DomainController) {
     }
 
     try {
-        Delete-ProfileOnConferenceComputer -Name $User -DomainController $DomainController -SearchBase "OU=s,DC=,DC="
+        Delete-ProfileOnComputersInOU -Username $User -DomainController $DomainController -SearchBase "OU=,DC=,DC="
     }
     catch {
         else { Write-Host -ForegroundColor Red "There was a problem removing $User from conference computers." }

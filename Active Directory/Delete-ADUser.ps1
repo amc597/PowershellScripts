@@ -104,7 +104,8 @@ function Delete-ADUser {
             }
         }
     }
-
+    
+    Import-Clixml (Join-Path (Split-Path $Profile) SecretStoreCreds.ps1.credential) | Unlock-SecretStore -PasswordTimeout 60
     $Creds = Get-Secret AdminCreds
     if (!$Creds) {
         $Admin = $null
