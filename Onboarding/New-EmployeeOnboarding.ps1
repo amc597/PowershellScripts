@@ -469,7 +469,8 @@ function New-EmployeeOnboarding {
                 Write-Host -ForegroundColor Green "$Name has been given the following licenses: `n $($license.SkuPartNumber) `n $($license.SkuPartNumber)"
             }
             Set-MgUserLicense -UserId $userId.Id -AddLicenses $addLicenses -RemoveLicenses @() 
-        }   
+        } 
+        Disconnect-Graph  
     }    
     function Add-UserTo365Groups {
         [CmdletBinding()]
@@ -512,6 +513,7 @@ function New-EmployeeOnboarding {
                 Write-Host -ForegroundColor Green "$Name has been added to the following groups:`n $($group.DisplayName)" 
             }
         }
+        Disconnect-Graph
     }
     function AddTo-PasswordSheet {
         [CmdletBinding()]
@@ -625,7 +627,10 @@ function New-EmployeeOnboarding {
             [Parameter(Mandatory)]
             [string]
             $OfficeLocation,
-            $PhoneNumber
+            [Parameter(Mandatory)]
+            [string]
+            $PhoneNumber,
+            $DoorCode
         )
         Add-Type -Path C:\WINDOWS\assembly\GAC_MSIL\office\15.0.0.0__71e9bce111e9429c\office.dll -PassThru
         Add-Type -Path C:\WINDOWS\assembly\GAC_MSIL\Microsoft.Office.Interop.Word\15.0.0.0__71e9bce111e9429c\Microsoft.Office.Interop.Word.dll -PassThru
@@ -777,13 +782,13 @@ function New-EmployeeOnboarding {
         $Selection.TypeParagraph()
 
 
-        if ($OfficeLocation -like '*TDMK Okta*') {
+        if ($OfficeLocation -like '**') {
             $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
             $Selection.ParagraphFormat.SpaceAfter = 0
             $Selection.Style = "Normal"
             $Selection.Font.Size = 13
             $Selection.Font.Name = "Calibri"
-            $Selection.TypeText("Door Code: $FWDoorCode ")
+            $Selection.TypeText("Door Code: $DoorCode ")
             $Selection.TypeParagraph()
     
             $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
@@ -928,7 +933,7 @@ function New-EmployeeOnboarding {
         $FWDoorCode = $null
         $FWDoorCode = Get-UserInput -InputType "DoorCode" -Regex '^\D$|^\d{4,}$|^\d{0,2}$|^\S$|^\s$|^\W$' -FailMessage "Please provide a valid door code." 
         if (!$FWDoorCode) { 
-            Write-Host -ForegroundColor Red "Please enter the Fort Worth door code"
+            Write-Host -ForegroundColor Red "Please enter the door code"
             $FWDoorCode = $null
             return 
         }
@@ -1070,8 +1075,8 @@ function New-EmployeeOnboarding {
         }
     } 
 
-    $emailSetup = Start-Job -ArgumentList $Name, $Email, $User, $DomainController, $Creds -ScriptBlock {
-        param($Name, $Email, $User, $DomainController, $Creds)
+    $emailSetup = Start-Job -ArgumentList $Email, $User, $DomainController, $Creds -ScriptBlock {
+        param($Email, $User, $DomainController, $Creds)
 
         Invoke-Command -ComputerName $DomainController -Credential $Creds -ScriptBlock { Start-ADSyncSyncCycle -PolicyType Initial } -Verbose
         Start-Timer -TimeToWaitInSeconds 5
@@ -1112,12 +1117,11 @@ function New-EmployeeOnboarding {
             Connect-ExchangeOnline
             Enable-Mailbox -Identity $Email -Archive
         }
-        Disconnect-Graph
         Disconnect-ExchangeOnline
     }
    
-    $OtherSetup = Start-Job -ArgumentList $Name, $Email, $User, $Title, $OU, $PhoneNumber, $StartDate, $FWDoorCode -ScriptBlock {
-        param($Name, $Email, $User, $Title, $OU, $PhoneNumber, $StartDate)
+    $miscSetup = Start-Job -ArgumentList $Name, $Email, $User, $Title, $OU, $PhoneNumber, $StartDate, $FWDoorCode -ScriptBlock {
+        param($Name, $Email, $User, $Title, $OU, $PhoneNumber, $StartDate, $FWDoorCode)
 
         AddTo-PasswordSheet -Name $Name -Email $Email
         Write-Host -ForegroundColor Green "$Name has been added to password sheet."
@@ -1125,17 +1129,17 @@ function New-EmployeeOnboarding {
         AddTo-TMADFSheet -Name $Name -Email $Email     
         Write-Host -ForegroundColor Green "$Name has been added to TMADF sheet."
 
-        Create-UserCheatSheet -Name $Name -Email $Email -Username $User  -Title $Title -OfficeLocation $OU -PhoneNumber $PhoneNumber 
+        Create-UserCheatSheet -Name $Name -Email $Email -Username $User  -Title $Title -OfficeLocation $OU -PhoneNumber $PhoneNumber -DoorCode $FWDoorCode
         Write-Host -ForegroundColor Green "User cheat sheet has been created."
         
         AddTo-TimeAllocationsTable -ServerInstance $SqlServerInstance -Database '' -TableName '' -Schema 'dbo' -Name $Name -Title $Title -StartDate $StartDate -Email $Email
     }   
 
-    Wait-Job $OtherSetup | Out-Null
     Wait-Job $emailSetup | Out-Null
+    Wait-Job $miscSetup | Out-Null
 
-    Receive-Job -Job $OtherSetup
     Receive-Job -Job $emailSetup
+    Receive-Job -Job $miscSetup
 
 } 
 New-EmployeeOnboarding -DomainController '' -DomainName '' -SqlServerInstance ''

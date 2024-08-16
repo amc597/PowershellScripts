@@ -1,4 +1,13 @@
-function Remove-Employee([Parameter(Mandatory)][string]$DomainController) {
+function Remove-Employee{
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory)]
+        [string]
+        $DomainController,
+        [Parameter(Mandatory)]
+        [string]
+        $SqlServerInstance
+    )
     function Connect-Smartsheet {
         [CmdletBinding()]
         param (
@@ -45,7 +54,7 @@ function Remove-Employee([Parameter(Mandatory)][string]$DomainController) {
     
             $RowArrayParameter = [System.Management.Automation.RuntimeDefinedParameter]::new($RowArrayParameterName, $RowArrayParameterType, $RowArrayParameterAttributes)
     
-            if ($MethodType -eq 'Post') {
+            if ({ $MethodType -eq 'Post' -or { $MethodType -eq 'Put' } }) {
                 $DynamicParamsToShow.Add($UrlParameterName, $UrlParameter)
                 $DynamicParamsToShow.Add($BodyParameterName, $BodyParameter)
             }
@@ -71,14 +80,23 @@ function Remove-Employee([Parameter(Mandatory)][string]$DomainController) {
                     $headers.Add("Content-Type", "application/json")
                     $url = "https://api.smartsheet.com/2.0/sheets/$sheetId/$URL"
     
-                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method POST -Body ($body | ConvertTo-Json)
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType -Body ($body | ConvertTo-Json)
+                    return $response
+                }
+                "Put" {
+                    $headers = @{}
+                    $headers.Add("Authorization", "Bearer " + $apiKey)
+                    $headers.Add("Content-Type", "application/json")
+                    $url = "https://api.smartsheet.com/2.0/sheets/$sheetId/$URL"            
+    
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType -Body ($body | ConvertTo-Json)
                     return $response
                 }
                 "Delete" {
                     $headers = @{}
                     $headers.Add("Authorization", "Bearer " + $APIKey) 
                     $url = "https://api.smartsheet.com/2.0/sheets/$SheetID/rows?ids=$($RowArray)"
-                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Delete 
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType
                 }
             }
         }
@@ -158,7 +176,7 @@ function Remove-Employee([Parameter(Mandatory)][string]$DomainController) {
             [Parameter(Mandatory)]
             [pscredential]
             $Credentials
-        )      
+        )
         switch ($InputType) {
             "Admin" {
                 $Username = $Credentials.username
@@ -372,16 +390,19 @@ function Remove-Employee([Parameter(Mandatory)][string]$DomainController) {
         return $AllGroupId 
     }
     function Remove-From365Groups {
-        $UserGroups = Get-MgUserMemberOf -UserId $UserId.Id
+        ConnectTo-MSGraph
 
-        $AllGroupId = @()
-        $AllGroupId = foreach ($Id in $UserGroups.Id) {
-            Get-MgGroup -GroupId $Id -Property DisplayName, Id, GroupTypes, onPremisesSyncEnabled 
+        $userId = Get-MgUser -Filter "Mail eq '$Email'" -Property id, displayname | Select-Object ID, DisplayName
+        $userGroups = Get-MgUserMemberOf -UserId $userId.Id
+
+        $joinedGroups = @()
+        $joinedGroups = foreach ($id in $userGroups.Id) {
+            Get-MgGroup -GroupId $id -Property DisplayName, Id, GroupTypes, onPremisesSyncEnabled 
         }
-        $AllGroupId = $AllGroupId | Where-Object { $null -eq $_.OnPremisesSyncEnabled }
+        $joinedGroups = $joinedGroups | Where-Object { $null -eq $_.OnPremisesSyncEnabled }
 
-        foreach ($Group in $AllGroupId[8].Id) {
-            Remove-MgGroupMemberByRef -GroupId $Group -DirectoryObjectId $UserId.Id
+        foreach ($group in $joinedGroups[8].Id) {
+            Remove-MgGroupMemberByRef -GroupId $group -DirectoryObjectId $userId.Id
         }
     }
     function Remove-FromPasswordSheet {
@@ -582,29 +603,28 @@ function Remove-Employee([Parameter(Mandatory)][string]$DomainController) {
         }
     }
 
-
-    $ModulesNeeded = "Microsoft.PowerShell.SecretStore", "Microsoft.PowerShell.SecretManagement", "Microsoft.Graph", "ExchangeOnlineManagement", "SqlServer"
+    $modulesNeeded = "Microsoft.PowerShell.SecretStore", "Microsoft.PowerShell.SecretManagement", "Microsoft.Graph", "ExchangeOnlineManagement", "SqlServer"
     Install-NeededPackages -PackageName "Nuget" -MinimumVersion "2.8.5.201"  
-    Install-NeededModules -ModuleName $ModulesNeeded   
-    
-    Import-Clixml (Join-Path (Split-Path $Profile) SecretStoreCreds.ps1.credential) | Unlock-SecretStore -PasswordTimeout 60
-    $Creds = Get-Secret AdminCreds
-    if (!$Creds) {
-        $Admin = $null
-        $Admin = Get-UserInput -InputType "Admin" -Regex '[^a-zA-Z]' -FailMessage "Please provide a valid domain admin username." 
-        if (!$Admin) { return }
-        else { $AdminUser = 'tmark\' + $Admin }
-        $Creds = Get-Credential $AdminUser
-        if (Check-IfAccountExists -Name $Admin -InputType "Admin" -Credentials $Creds) { 
-            Write-Host -ForegroundColor Red "$Admin account not found" 
-            $Admin = $null
+    Install-NeededModules -ModuleName $modulesNeeded   
+
+    Import-Clixml (Join-Path (Split-Path $Profile) SecretStoreCreds.ps1.credential) | Unlock-SecretStore -PasswordTimeout 1800
+    $creds = Get-Secret AdminCreds
+    if (!$creds) {
+        $admin = $null
+        $admin = Get-UserInput -InputType "Admin" -Regex '[^a-zA-Z]' -FailMessage "Please provide a valid domain admin username." 
+        if (!$admin) { return }
+        else { $adminUser = ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name.Split('\') | select -First 1) + '\' + $admin }
+        $creds = Get-Credential $adminUser
+        if (Check-IfAccountExists -Name $admin -InputType "Admin" -Credentials $creds) { 
+            Write-Host -ForegroundColor Red "$admin account not found" 
+            $admin = $null
             return
         }
     }
     else {
-        if (Check-IfAccountExists -Name $Creds -InputType "Admin" -Credentials $Creds) { 
-            Write-Host -ForegroundColor Red "$Creds account not found" 
-            $Admin = $null
+        if (!(Check-IfAccountExists -Name $creds -InputType "Admin" -Credentials $creds)) { 
+            Write-Host -ForegroundColor Red "$creds account not found" 
+            $admin = $null
             return
         }
     }
@@ -612,12 +632,11 @@ function Remove-Employee([Parameter(Mandatory)][string]$DomainController) {
     $Name = $null
     $Name = Get-UserInput -InputType "Name" -Regex '^\s|\s{2,}|\s$|\d|\0|[^a-zA-Z\s]' -FailMessage "Please provide a valid name."
     if (!$Name) { return }
-    if (Check-IfAccountExists -Name $Name -InputType "Name" -Credentials $Creds) { 
+    if ($checkForUser = Check-IfAccountExists -Name $Name -InputType "Name" -Credentials $Creds) { 
         Write-Host -ForegroundColor Red "$Name found in AD." 
         $Name = $null
         return
-    }
-    else { $Name = $CheckForUser.SamAccountName }    
+    }  
 
     $SplitName = $Name.split(" ")
     $First = $SplitName[0]
@@ -628,90 +647,150 @@ function Remove-Employee([Parameter(Mandatory)][string]$DomainController) {
     $User = $First.Substring(0, 1) + $Last
     $Email = $User + "@.com"
 
-    $Password = New-Password -passLength 18
+    $adRemoval = Start-Job -ArgumentList $User, $DomainController, $Creds -ScriptBlock {
+        param($User, $DomainController, $Creds)
 
-    $Attributes = @{
-        Identity    = $User 
-        NewPassword = (ConvertTo-SecureString -AsPlainText $Password -Force)
-        Credential  = $Creds
-    }
-    Invoke-Command -ComputerName $DomainController -Credential $Creds -ArgumentList $Attributes -ScriptBlock {
-        param (
-            $Attributes
-        )
-        Set-ADAccountPassword @Attributes -Server tmark.local
+        $Password = New-Password -passLength 18
+        $Attributes = @{
+            Identity    = $User 
+            NewPassword = (ConvertTo-SecureString -AsPlainText $Password -Force)
+            Credential  = $Creds
+        }
 
-        $Groups = (Get-ADUser $Attributes.Identity -Properties MemberOf).MemberOf
-        foreach ($Group in $Groups) {
-            Remove-ADPrincipalGroupMembership $Attributes.Identity -MemberOf $Group -Confirm:$false
-            Write-Host "$($Attributes.Identity) has been removed from $Group" -ForegroundColor Green
+        Invoke-Command -ComputerName $DomainController -Credential $Creds -ArgumentList $Attributes -ScriptBlock {
+            param (
+                $Attributes
+            )
+            Set-ADAccountPassword @Attributes
+    
+            $Groups = (Get-ADUser $Attributes.Identity -Properties MemberOf).MemberOf
+            foreach ($Group in $Groups) {
+                Remove-ADPrincipalGroupMembership $Attributes.Identity -MemberOf $Group -Confirm:$false
+                Write-Host "$($Attributes.Identity) has been removed from $Group" -ForegroundColor Green
+            }
+            
+            $Attributes = @{
+                Identity = $User 
+            }
+            $AllGroupId = Move-ToXOU -Attributes $Attributes
+            $UserOuArray = @()
+            $UserOuArray = [PSCustomObject]@{
+                CurrentOU = $AllGroupId[0]
+                NewOU     = $AllGroupId[1]
+            }   
         }
     }
 
-    Remove-SharedMailboxPermission -User $User
-    Set-Mailbox -Identity $User -Type Shared
+    $emailRemoval = Start-Job -ArgumentList $User, $DomainController, $Creds -ScriptBlock {
+        param($User, $DomainController, $Creds)
 
-    $Attributes = @{
-        Identity = $User 
-    }
-    $AllGroupId = Move-ToXOU -Attributes $Attributes
-    $UserOuArray = @()
-    $UserOuArray = [PSCustomObject]@{
-        CurrentOU = $AllGroupId[0]
-        NewOU     = $AllGroupId[1]
-    }    
-    
-    ConnectTo-MSGraph
-    $LicensesToRemove = @()
-    $UserId = Get-MgUser -Filter "Mail eq '$Email'" 
-    $LicenseId = Get-MgUserLicenseDetail -UserId $UserId.Id
-    $LicensesToRemove += $LicenseId.SkuId
-    
-    Set-MgUserLicense -UserId $UserId.Id -RemoveLicenses $LicensesToRemove -AddLicenses @()
-    Remove-From365Groups
+        Invoke-Command -ComputerName $DomainController -Credential $Creds -ScriptBlock { Start-ADSyncSyncCycle -PolicyType Initial } -Verbose
+        Start-Timer -TimeToWaitInSeconds 5
 
-    try {
-        Remove-FromPasswordSheet    
-    }
-    catch {
-        Write-Host -ForegroundColor Red "$Name has not been removed from Password sheet."
-    }
-
-    try {        
-        Remove-FromTMADFSheet -Name $Name    
-    }
-    catch {
-        Write-Host -ForegroundColor Red "$Name has not been removed from TMADF sheet."
-    }
-
-    if ($UserOuArray.CurrentOU -like '*OU=,DC=,DC=') {
+        $365Sync = Invoke-Command -ComputerName $DomainController -Credential $Creds -ScriptBlock { Get-ADSyncConnectorRunStatus } -Verbose
+        $365Sync
+        
+        while ($365Sync.Runstate) {
+            Start-Timer -TimeToWaitInSeconds 5
+            $365Sync = Invoke-Command -ComputerName $DomainController -Credential $Creds -ScriptBlock { Get-ADSyncConnectorRunStatus } -Verbose
+            $365Sync
+        }
+        Write-Output "AD Sync has finished"
+        Start-Timer -TimeToWaitInSeconds 5
+       
         try {
-            Remove-FromTimeAllocationsTable -ServerInstance '' -Database '' -TableName '' -Schema 'dbo' -Name $Name
-            Check-SqlRow -ServerInstance '' -Database '' -TableName '' -Schema 'dbo' -Name $Name
+            Remove-SharedMailboxPermission -User $User
         }
         catch {
-            Write-Host -ForegroundColor Red "$Name has NOT been removed from Time Allocations list."
+            Start-Timer -TimeToWaitInSeconds 30
+            Remove-SharedMailboxPermission -User $User
         }
-    }
-
-    try {
-        Remove-ServerProfile -Username $User -ServerName "" -Credentials $Creds
-    }
-    catch {
-        if (!$User) {
-            Write-Host -ForegroundColor Red "Username has not been provided."
+        try {
+            Set-Mailbox -Identity $User -Type Shared
         }
-        else { Write-Host -ForegroundColor Red "There was a problem removing $User from $ServerName." }
+        catch {
+            Start-Timer -TimeToWaitInSeconds 30
+            Set-Mailbox -Identity $User -Type Shared
+        }        
+        try {
+            $LicensesToRemove = @()
+            $UserId = Get-MgUser -Filter "Mail eq '$Email'" 
+            $LicenseId = Get-MgUserLicenseDetail -UserId $UserId.Id
+            $LicensesToRemove += $LicenseId.SkuId
+            
+            Set-MgUserLicense -UserId $UserId.Id -RemoveLicenses $LicensesToRemove -AddLicenses @()
+            Remove-From365Groups    
+        }
+        catch {
+            Start-Timer -TimeToWaitInSeconds 30
+=
+            $LicensesToRemove = @()
+            $UserId = Get-MgUser -Filter "Mail eq '$Email'" 
+            $LicenseId = Get-MgUserLicenseDetail -UserId $UserId.Id
+            $LicensesToRemove += $LicenseId.SkuId
+            
+            Set-MgUserLicense -UserId $UserId.Id -RemoveLicenses $LicensesToRemove -AddLicenses @()
+            Remove-From365Groups
+        }
+        Disconnect-Graph
+        Disconnect-ExchangeOnline    
     }
+   
+    $miscRemoval = Start-Job -ArgumentList $Name, $User, $DomainController, $Creds -ScriptBlock {
+        param($Name, $User, $DomainController, $Creds)
 
-    try {
-        Delete-ProfileOnComputersInOU -Username $User -DomainController $DomainController -SearchBase "OU=,DC=,DC="
-    }
-    catch {
-        else { Write-Host -ForegroundColor Red "There was a problem removing $User from conference computers." }
-    }
+        try {
+            Remove-FromPasswordSheet -Name $Name    
+        }
+        catch {
+            Write-Host -ForegroundColor Red "$Name has not been removed from Password sheet."
+        }
 
-} Remove-Employee -DomainController ''
+        try {        
+            Remove-FromTMADFSheet -Name $Name    
+        }
+        catch {
+            Write-Host -ForegroundColor Red "$Name has not been removed from TMADF sheet."
+        }
+
+        if ($UserOuArray.CurrentOU -like '*OU=,DC=,DC=') {
+            try {
+                Remove-FromTimeAllocationsTable -ServerInstance '' -Database '' -TableName '' -Schema 'dbo' -Name $Name
+                Check-SqlRow -ServerInstance '' -Database '' -TableName '' -Schema 'dbo' -Name $Name
+            }
+            catch {
+                Write-Host -ForegroundColor Red "$Name has NOT been removed from Time Allocations list."
+            }
+        }
+
+        try {
+            Remove-ServerProfile -Username $User -ServerName "" -Credentials $Creds
+        }
+        catch {
+            if (!$User) {
+                Write-Host -ForegroundColor Red "Username has not been provided."
+            }
+            else { Write-Host -ForegroundColor Red "There was a problem removing $User from $ServerName." }
+        }
+    
+        try {
+            Delete-ProfileOnComputersInOU -Username $User -DomainController $DomainController -SearchBase "OU=,DC=,DC="
+        }
+        catch {
+            else { Write-Host -ForegroundColor Red "There was a problem removing $User from conference computers." }
+        }
+    }   
+
+    Wait-Job $adRemoval | Out-Null
+    Wait-Job $miscRemoval | Out-Null
+    Wait-Job $emailRemoval | Out-Null
+
+    Receive-Job -Job $adRemoval
+    Receive-Job -Job $miscRemoval
+    Receive-Job -Job $emailRemoval
+
+} 
+Remove-Employee -DomainController '' -SqlServerInstance ''
 
 
 

@@ -7,7 +7,6 @@ function Delete-ProfileOnComputersInOU {
         [Parameter(Mandatory)]
         [string]
         $SearchBase,
-        [Parameter(Mandatory)]
         $Names
     )
     function Get-UserInput {
@@ -168,8 +167,8 @@ function Delete-ProfileOnComputersInOU {
         } 
     }
 
-    if($Names){        
-        foreach($name in $Names){
+    if ($Names) {        
+        foreach ($name in $Names) {
             if (!($CheckForUser = Check-IfAccountExists -Name $name -InputType "Name" -Credentials $creds) -and $name) { 
                 Write-Host -ForegroundColor Red "$name not found in AD."
             }
@@ -199,10 +198,11 @@ function Delete-ProfileOnComputersInOU {
                 $userProfile = Get-CimInstance -ClassName win32_userprofile  | select sid, localpath | where { $_.LocalPath -eq "C:\Users\$user" }
                 if ($userProfile) {
                     Write-Host -ForegroundColor Green "$($userProfile.localpath) found on $Using:comp"
-                    #Get-CimInstance -ClassName win32_userprofile | where { $_.LocalPath -eq "C:\Users\$Using:user" } | Remove-CimInstance
+                    Get-CimInstance -ClassName win32_userprofile | where { $_.LocalPath -eq "C:\Users\$Using:user" } | Remove-CimInstance
                 }
                 else { Write-Host -ForegroundColor Red "$user not found on $Using:comp" }
-            } }
+            } 
+        }
     }
 }
-Delete-ProfileOnComputersInOU -DomainController "tm-dc05" -SearchBase "OU=TDMK Common Area Machines,DC=tmark,DC=local" -Names @("alex collins", "test user", "jennifier livingston")
+Delete-ProfileOnComputersInOU -DomainController "" -SearchBase "OU=,DC=,DC=" -Names @("", "", "")
