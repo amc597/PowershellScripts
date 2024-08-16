@@ -736,8 +736,8 @@ function Remove-Employee{
         Disconnect-ExchangeOnline    
     }
    
-    $miscRemoval = Start-Job -ArgumentList $Name, $User, $DomainController, $Creds -ScriptBlock {
-        param($Name, $User, $DomainController, $Creds)
+    $miscRemoval = Start-Job -ArgumentList $Name, $User, $DomainController, $SqlServerInstance, $Creds -ScriptBlock {
+        param($Name, $User, $DomainController, $SqlServerInstance, $Creds)
 
         try {
             Remove-FromPasswordSheet -Name $Name    

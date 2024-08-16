@@ -1120,8 +1120,8 @@ function New-EmployeeOnboarding {
         Disconnect-ExchangeOnline
     }
    
-    $miscSetup = Start-Job -ArgumentList $Name, $Email, $User, $Title, $OU, $PhoneNumber, $StartDate, $FWDoorCode -ScriptBlock {
-        param($Name, $Email, $User, $Title, $OU, $PhoneNumber, $StartDate, $FWDoorCode)
+    $miscSetup = Start-Job -ArgumentList $Name, $Email, $User, $Title, $OU, $PhoneNumber, $StartDate, $FWDoorCode, $SqlServerInstance -ScriptBlock {
+        param($Name, $Email, $User, $Title, $OU, $PhoneNumber, $StartDate, $FWDoorCode, $SqlServerInstance)
 
         AddTo-PasswordSheet -Name $Name -Email $Email
         Write-Host -ForegroundColor Green "$Name has been added to password sheet."
