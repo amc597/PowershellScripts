@@ -78,11 +78,11 @@ function Unlock-UserAdAccount {
         )      
         switch ($InputType) {
             "Admin" {
-                $Username = $Credentials.username
+                $username = $Credentials.username
                 $Password = $Credentials.GetNetworkCredential().password
                 $CurrentDomain = "LDAP://" + ([ADSI]"").distinguishedName
-                $Domain = New-Object System.DirectoryServices.DirectoryEntry($CurrentDomain, $Username, $Password)
-           
+                $Domain = New-Object System.DirectoryServices.DirectoryEntry($CurrentDomain, $username, $Password)
+               
                 if ($Domain.name -eq $null) {
                     Write-Host -ForegroundColor Red "Authentication failed - please verify your username and password."
                     exit 
@@ -99,8 +99,8 @@ function Unlock-UserAdAccount {
                         for ($i = 1; $i -lt $SplitName.Count; $i++) {
                             $Last += $SplitName[$i]
                         }
-                        $User = $SplitName[0].Substring(0, 1) + $Last 
-                    
+                        $user = $SplitName[0].Substring(0, 1) + $Last 
+                        
                         $CheckForUser = Invoke-Command -ComputerName $DomainController -ScriptBlock {
                             Get-ADUser -Filter { samaccountname -eq $Using:User } 
                         } -Credential $Credentials
@@ -109,7 +109,7 @@ function Unlock-UserAdAccount {
                     else {
                         $CheckForUser = Invoke-Command -ComputerName $DomainController -ScriptBlock {
                             Get-ADUser -Filter { samaccountname -eq $Using:Name } 
-                        } -Credential $Credentials 
+                        } -Credential $Credentials
                         return $CheckForUser
                     }                     
                 }
@@ -121,37 +121,29 @@ function Unlock-UserAdAccount {
     }
     
     Import-Clixml (Join-Path (Split-Path $Profile) SecretStoreCreds.ps1.credential) | Unlock-SecretStore -PasswordTimeout 60
-    $Creds = Get-Secret AdminCreds
-    if (!$Creds) {
-        $Admin = $null
-        $Admin = Get-UserInput -InputType "Admin" -Regex '[^a-zA-Z]' -FailMessage "Please provide a valid domain admin username." 
-        if (!$Admin) { return }
-        else { $AdminUser = 'tmark\' + $Admin }
-        $Creds = Get-Credential $AdminUser
-        if (Check-IfAccountExists -Name $Admin -InputType "Admin" -Credentials $Creds) { 
-            Write-Host -ForegroundColor Red "$Admin account not found" 
-            $Admin = $null
+    $creds = Get-Secret AdminCreds
+    if (!$creds) {
+        $admin = $null
+        $admin = Get-UserInput -InputType "Admin" -Regex '[^a-zA-Z]' -FailMessage "Please provide a valid domain admin username." 
+        if (!$admin) { return }
+        else { $adminUser = ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name.Split('\') | select -First 1) + '\' + $admin }
+        $creds = Get-Credential $adminUser
+        if (Check-IfAccountExists -Name $admin -InputType "Admin" -Credentials $creds) { 
+            Write-Host -ForegroundColor Red "$admin account not found" 
+            $admin = $null
             return
         }
     }
-    else {
-        if (Check-IfAccountExists -Name $Creds -InputType "Admin" -Credentials $Creds) { 
-            Write-Host -ForegroundColor Red "$Creds account not found" 
-            $Admin = $null
-            return
-        }
-    }
-
+    
     $Name = $null
     $Name = Get-UserInput -InputType "Name" -Regex '^\s|\s{2,}|\s$|\d|\0|[^a-zA-Z\s]' -FailMessage "Please provide a valid name."
     if (!$Name) { return }
-    if (!($CheckForUser = Check-IfAccountExists -Name $Name -InputType "Name" -Credentials $Creds)) { 
-        Write-Host -ForegroundColor Red "$Name not found in AD." 
+    if ($checkForUser = Check-IfAccountExists -Name $Name -InputType "Name" -Credentials $Creds) { 
+        Write-Host -ForegroundColor Red "$Name found in AD." 
         $Name = $null
         return
     }
-    else { $Name = $CheckForUser.SamAccountName }
-
+    
     $Attributes = @{
         Identity = $Name
     }
