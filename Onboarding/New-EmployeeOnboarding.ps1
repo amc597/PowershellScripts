@@ -6,9 +6,6 @@ function New-EmployeeOnboarding {
         $DomainController,
         [Parameter(Mandatory)]
         [string]
-        $DomainName,
-        [Parameter(Mandatory)]
-        [string]
         $SqlServerInstance
     )
     function Connect-Smartsheet {
@@ -57,7 +54,7 @@ function New-EmployeeOnboarding {
     
             $RowArrayParameter = [System.Management.Automation.RuntimeDefinedParameter]::new($RowArrayParameterName, $RowArrayParameterType, $RowArrayParameterAttributes)
     
-            if ($MethodType -eq 'Post') {
+            if (($MethodType -eq 'Post') -or $MethodType -eq 'Put') {
                 $DynamicParamsToShow.Add($UrlParameterName, $UrlParameter)
                 $DynamicParamsToShow.Add($BodyParameterName, $BodyParameter)
             }
@@ -72,29 +69,47 @@ function New-EmployeeOnboarding {
                     $headers = $null
                     $headers = @{}
                     $headers.add("Authorization", "Bearer " + $ApiKey)
-                    $url = $url = "https://api.smartsheet.com/2.0/sheets/" + $SheetId
+                    $url = "https://api.smartsheet.com/2.0/sheets/$SheetId" 
             
-                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType 
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType
                     return $response
                 }
                 "Post" {
+                    $body = $PSBoundParameters.Body
+                    $url = $PSBoundParameters.Url
+                    
+                    $headers = $null
                     $headers = @{}
-                    $headers.Add("Authorization", "Bearer " + $apiKey)
+                    $headers.Add("Authorization", "Bearer " + $ApiKey)
                     $headers.Add("Content-Type", "application/json")
-                    $url = "https://api.smartsheet.com/2.0/sheets/$sheetId/$URL"
-    
-                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method POST -Body ($body | ConvertTo-Json)
+                    $url = "https://api.smartsheet.com/2.0/sheets/$SheetId/$url"                        
+                    
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType -Body ($body | ConvertTo-Json) -Verbose
+                    return $response
+                }
+                "Put" {
+                    $body = $PSBoundParameters.Body
+                    $url = $PSBoundParameters.Url
+                    
+                    $headers = $null
+                    $headers = @{}
+                    $headers.Add("Authorization", "Bearer " + $ApiKey)
+                    $headers.Add("Content-Type", "application/json")
+                    $url = "https://api.smartsheet.com/2.0/sheets/$SheetId/$url"                        
+                    
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType -Body ($body | ConvertTo-Json) -Verbose
                     return $response
                 }
                 "Delete" {
+                    [array]$rowArray = $PSBoundParameters.RowArray
                     $headers = @{}
-                    $headers.Add("Authorization", "Bearer " + $APIKey) 
-                    $url = "https://api.smartsheet.com/2.0/sheets/$SheetID/rows?ids=$($RowArray)"
-                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method Delete 
+                    $headers.Add("Authorization", "Bearer " + $ApiKey) 
+                    $url = "https://api.smartsheet.com/2.0/sheets/$SheetID/rows?ids=$($rowArray)"
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType 
                 }
             }
         }
-    }   
+    } 
     function Get-NewEmployeeInfo {
         [CmdletBinding()]
         param (
@@ -106,8 +121,9 @@ function New-EmployeeOnboarding {
         $sheetId = (Get-Secret SmartsheetNewEmployee -AsPlainText).SheetID
     
         $response = Connect-Smartsheet -SheetID $sheetId -APIKey $apiKey -MethodType 'Get'
-        $columns = $response.columns | Where-Object { ($_.title -like "Name") -or ($_.title -like "Phone Number") -or ($_.title -like "Start Date") -or ($_.title -like "Manager") -or ($_.title -like "Title") -or ($_.title -like "Office Location") }
+        $columns = $response.columns | Where-Object { ($_.title -like "Name") -or ($_.title -like "Email") -or ($_.title -like "Phone Number") -or ($_.title -like "Start Date") -or ($_.title -like "Manager") -or ($_.title -like "Title") -or ($_.title -like "Office Location") }
         $nameId = $columns | Where-Object { $_.title -eq "Name" }
+        $emailId = $columns | Where-Object { $_.title -eq "Email" }
         $ManagerID = $columns | Where-Object { $_.title -eq "Manager" }
         $TitleID = $columns | Where-Object { $_.title -eq "Title" }
         $PhoneNumberID = $columns | Where-Object { $_.title -eq "Phone Number" }
@@ -116,6 +132,7 @@ function New-EmployeeOnboarding {
         $rows = $response.rows
 
         $UserRow = $rows | where { $_.cells.displayValue -eq $Name }
+        $UserEmail = $UserRow.cells | where { $_.columnId -eq $emailId.id } | select value
         $UserPhoneNumber = $UserRow.cells | where { $_.columnId -eq $PhoneNumberID.id } | select displayValue
         $UserStartDate = $UserRow.cells | where { $_.columnId -eq $StartDateID.id } | select value
         $UserTitle = $UserRow.cells | where { $_.columnId -eq $TitleID.id } | select value
@@ -133,13 +150,14 @@ function New-EmployeeOnboarding {
             }
         }
 
+        $Email = $UserEmail.value
         $StartDate = (Get-Date $UserStartDate.value -Format "MM/dd/yyyy")
         $PhoneNumber = $UserPhoneNumber.displayValue
         $Manager = $UserManager.value
         $Title = $UserTitle.value
         $Office = $UserOffice.value
 
-        return $StartDate, $Manager, $Title, $PhoneNumber, $Office
+        return $Email, $StartDate, $Manager, $Title, $PhoneNumber, $Office
     }
     function Get-UserInput {
         [CmdletBinding()]
@@ -219,10 +237,10 @@ function New-EmployeeOnboarding {
         )      
         switch ($InputType) {
             "Admin" {
-                $Username = $Credentials.username
+                $username = $Credentials.username
                 $Password = $Credentials.GetNetworkCredential().password
                 $CurrentDomain = "LDAP://" + ([ADSI]"").distinguishedName
-                $Domain = New-Object System.DirectoryServices.DirectoryEntry($CurrentDomain, $Username, $Password)
+                $Domain = New-Object System.DirectoryServices.DirectoryEntry($CurrentDomain, $username, $Password)
                
                 if ($Domain.name -eq $null) {
                     Write-Host -ForegroundColor Red "Authentication failed - please verify your username and password."
@@ -240,7 +258,7 @@ function New-EmployeeOnboarding {
                         for ($i = 1; $i -lt $SplitName.Count; $i++) {
                             $Last += $SplitName[$i]
                         }
-                        $User = $SplitName[0].Substring(0, 1) + $Last 
+                        $user = $SplitName[0].Substring(0, 1) + $Last 
                         
                         $CheckForUser = Invoke-Command -ComputerName $DomainController -ScriptBlock {
                             Get-ADUser -Filter { samaccountname -eq $Using:User } 
@@ -260,128 +278,6 @@ function New-EmployeeOnboarding {
             }
         }
     }
-    function ConnectTo-MSGraph {
-        $appId = (Get-Secret MsGraph -AsPlainText).AppID
-        $tenantId = (Get-Secret MsGraph -AsPlainText).TenantID
-        $secret = (Get-Secret MsGraph -AsPlainText).Secret
-
-        $body = @{
-            Grant_Type    = "client_credentials"
-            Scope         = "https://graph.microsoft.com/.default"
-            Client_Id     = $appId
-            Client_Secret = $secret
-        }
- 
-        $connection = Invoke-RestMethod `
-            -Uri https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token `
-            -Method POST `
-            -Body $body
- 
-        $token = $connection.access_token
-
-        if (!$connection) {
-            $messages += "Can't connect to API"
-        }
-
-        Try {
-            Connect-MgGraph -AccessToken ($token | ConvertTo-SecureString -AsPlainText -Force) -ErrorAction Stop
-        }
-        Catch {
-            $messages += "Can't Connect to MgGraph"
-        }
-    } 
-    function AddTo-TimeAllocationsTable {
-        [CmdletBinding()]
-        param (
-            [Parameter(Mandatory)]
-            [string]
-            $Name,
-            [Parameter(Mandatory)]
-            [string]
-            $Email,
-            [Parameter(Mandatory)]
-            [string]
-            $Title,
-            [Parameter(Mandatory)]
-            [string]
-            $StartDate,
-            [Parameter(Mandatory)]
-            [string]
-            $ServerInstance,
-            [Parameter(Mandatory)]
-            [string]
-            $Database,
-            [Parameter(Mandatory)]
-            [string]
-            $TableName,
-            [Parameter(Mandatory)]
-            [string]
-            $Schema                
-        )
-        if (($OU -like 'OU=,DC=,DC=') -and ($Title -notlike '*Intern*')) {
-            $GetLastID = Invoke-Sqlcmd -Query "SELECT Top 1 ID,Name,Email,StartDate FROM [$Database].[$Schema].[$TableName] Order by ID Desc" `
-                -ServerInstance $ServerInstance -Database $Database -TrustServerCertificate  
-            $ID = $GetLastID.ID + 1
-            $ID
-            function createDT() {
-                $dataTable = New-Object System.Data.DataTable
-
-                $idCol = New-Object System.Data.DataColumn(“ID”)
-                $nameCol = New-Object System.Data.DataColumn(“Name”)
-                $emailCol = New-Object System.Data.DataColumn(“Email”)
-                $dateCol = New-Object System.Data.DataColumn(“StartDate”)
-           
-                $dataTable.columns.Add($idCol)
-                $dataTable.columns.Add($nameCol)
-                $dataTable.columns.Add($emailCol)
-                $dataTable.columns.Add($dateCol)
-       
-                return , $dataTable
-            } createDT
-        
-            $row = $dataTable.NewRow()
-            $row[“ID”] = $ID
-            $row[“Name”] = $Name
-            $row[“Email”] = $Email 
-            $row[“StartDate”] = $StartDate
-            $dataTable.rows.Add($row) 
-        
-            $Table = Write-SqlTableData -ServerInstance $ServerInstance -Database $Database -TableName $TableName -SchemaName $Schema -InputData $dataTable -Passthru -TrustServerCertificate 
-            Read-SqlTableData -InputObject $Table
-
-            $dataTable.Clear()
-
-            function Check-SqlRow {
-                [CmdletBinding()]
-                param (
-                    [Parameter(Mandatory)]
-                    [string]
-                    $Name,        
-                    [Parameter(Mandatory)]
-                    [string]
-                    $ServerInstance,
-                    [Parameter(Mandatory)]
-                    [string]
-                    $Database,
-                    [Parameter(Mandatory)]
-                    [string]
-                    $TableName,
-                    [Parameter(Mandatory)]
-                    [string]
-                    $Schema            
-                )
-                $CheckForUser = Invoke-Sqlcmd -Query "SELECT ID,Name FROM [$Database].[$Schema].[$TableName] where Name = '$Name'" `
-                    -ServerInstance $ServerInstance -Database $Database -TrustServerCertificate
-                
-                if ($CheckForUser) {
-                    Write-Host -ForegroundColor Green "$Name has been added to $TableName"
-                }
-                else { Write-Host -ForegroundColor Red "$Name has NOT been added to $TableName" }            
-            }
-            Check-SqlRow -ServerInstance $SqlServerInstance -Database '' -TableName '' -Schema 'dbo' -Name $Name
-        }
-        else { Write-Host -ForegroundColor Red "$Name has not been added to the table." }
-    } 
     function Install-NeededPackages {
         [CmdletBinding()]
         param (
@@ -421,443 +317,12 @@ function New-EmployeeOnboarding {
                 Write-Host -ForegroundColor DarkYellow "$Module is already installed."
             }
         }
-    } 
-    function Set-User365License {
-        [CmdletBinding()]
-        param (
-            [Parameter(Mandatory)]
-            $LicenseSku,
-            [Parameter(Mandatory = $true, ParameterSetName = "Email")]
-            [string]
-            $Email,
-            [Parameter(Mandatory = $true, ParameterSetName = "Name")]
-            [string]
-            $Name
-        )
-        if ($Email) {
-            ConnectTo-MSGraph
-            $userId = Get-MgUser -Filter "Mail eq '$email'" -Property id, displayname, usagelocation | Select-Object ID, DisplayName, UsageLocation 
-            Update-MgUser -UserId $userId.Id -UsageLocation "US"
-    
-            $addLicenses = @()
-            foreach ($sku in $LicenseSku) {
-                $license = Get-MgSubscribedSku | where SkuPartNumber -eq $sku
-                $addLicenses += @{SkuId = $license.SkuId }
-    
-                Write-Host -ForegroundColor Green "$Name has been given the following licenses: `n $($license.SkuPartNumber) `n $($license.SkuPartNumber)"
-            }
-            Set-MgUserLicense -UserId $userId.Id -AddLicenses $addLicenses -RemoveLicenses @()
-        }
-        elseif ($Name) {
-            $splitName = $Name.split(" ")
-            $first = $splitName[0]
-            $last = @() -join '' -replace '\s'
-            for ($i = 1; $i -lt $splitName.Count; $i++) {
-                $last += $splitName[$i]
-            }
-            $email = $first.Substring(0, 1) + $last + "@trademarkproperty.com"
-            
-            ConnectTo-MSGraph
-            $userId = Get-MgUser -Filter "Mail eq '$email'" -Property id, displayname, usagelocation | Select-Object ID, DisplayName, UsageLocation
-            Update-MgUser -UserId $userId.Id -UsageLocation "US" 
-            $addLicenses = @()
-    
-            foreach ($sku in $LicenseSku) {
-                $license = Get-MgSubscribedSku | where SkuPartNumber -eq $sku
-                $addLicenses += @{SkuId = $license.SkuId }
-    
-                Write-Host -ForegroundColor Green "$Name has been given the following licenses: `n $($license.SkuPartNumber) `n $($license.SkuPartNumber)"
-            }
-            Set-MgUserLicense -UserId $userId.Id -AddLicenses $addLicenses -RemoveLicenses @() 
-        } 
-        Disconnect-Graph  
-    }    
-    function Add-UserTo365Groups {
-        [CmdletBinding()]
-        param (
-            [Parameter(Mandatory)]
-            $NamesOf365Groups,
-            [Parameter(Mandatory = $true, ParameterSetName = "Email")]
-            [string]
-            $Email,
-            [Parameter(Mandatory = $true, ParameterSetName = "Name")]
-            [string]
-            $Name
-        )
-
-        if ($Email) {
-            ConnectTo-MSGraph
-            $userId = Get-MgUser -Filter "Mail eq '$Email'" -Property id, displayname, usagelocation | Select-Object ID, DisplayName, UsageLocation 
-                
-            foreach ($group in $NamesOf365Groups) {
-                $group = Get-MgGroup -Filter "DisplayName eq '$group'"
-                New-MgGroupMember -GroupId $group.Id -DirectoryObjectId $userId.Id   
-                Write-Host -ForegroundColor Green "$Name has been added to the following groups:`n $($group.DisplayName)" 
-            }
-        }
-        elseif ($Name) {
-            $splitName = $Name.split(" ")
-            $first = $splitName[0]
-            $last = @() -join '' -replace '\s'
-            for ($i = 1; $i -lt $splitName.Count; $i++) {
-                $last += $splitName[$i]
-            }
-            $email = $first.Substring(0, 1) + $last + "@trademarkproperty.com"
-            
-            ConnectTo-MSGraph
-            $userId = Get-MgUser -Filter "Mail eq '$email'" -Property id, displayname, usagelocation | Select-Object ID, DisplayName, UsageLocation 
-    
-            foreach ($group in $NamesOf365Groups) {            
-                $group = Get-MgGroup -Filter "DisplayName eq '$group'"
-                New-MgGroupMember -GroupId $group.Id -DirectoryObjectId $userId.Id   
-                Write-Host -ForegroundColor Green "$Name has been added to the following groups:`n $($group.DisplayName)" 
-            }
-        }
-        Disconnect-Graph
-    }
-    function AddTo-PasswordSheet {
-        [CmdletBinding()]
-        param (
-            [Parameter(Mandatory)]
-            [string]
-            $Name,
-            [Parameter(Mandatory)]
-            [string]
-            $Email
-        )
-        $apiKey = (Get-Secret SmartsheetPasswordExpiration -AsPlainText).Secret
-        $sheetId = (Get-Secret SmartsheetPasswordExpiration -AsPlainText).SheetID    
-
-        $response = Connect-Smartsheet -SheetID $sheetId -APIKey $apiKey -MethodType 'Get'
-        $columns = $response.columns | Where-Object { ($_.title -like "Primary Column") -or ($_.title -like "Contact") -or ($_.title -like "Expiration Data") }
-        $contactId = $columns | Where-Object { $_.title -eq "Contact" }
-        $dateId = $columns | Where-Object { $_.title -eq "Expiration Data" }
-        $primaryId = $columns | Where-Object { $_.title -eq "Primary Column" }
-        $rows = $response.rows
-
-        $SplitName = $Name.split(" ")
-        $First = $SplitName[0]
-        $Last = @() -join '' -replace '\s'
-        for ($i = 1; $i -lt $SplitName.Count; $i++) {
-            $Last += $SplitName[$i]
-        }
-        $primaryColumnName = $Last + ',' + " " + $First
-        $url = "rows"
-
-        $postBody = @{
-            "toBottom" = "true"
-            "cells"    = @(
-                @{
-                    "columnId" = "$($primaryId.id)"
-                    "value"    = "$($primaryColumnName)"                 
-                }
-                @{
-                    "columnId"     = "$($contactId.id)"
-                    "value"        = "$($Email)" 
-                    "displayValue" = "$($Name)" 
-                }
-            )
-        }
-        $response = Connect-Smartsheet -SheetID $sheetId -APIKey $apiKey -MethodType 'Post' -Url $url -Body $postBody      
-    } 
-    function AddTo-TMADFSheet {
-        [CmdletBinding()]
-        param (
-            [Parameter(Mandatory)]
-            [string]
-            $Name,
-            [Parameter(Mandatory)]
-            [string]
-            $Email
-        )
-        $apiKey = (Get-Secret SmartsheetTMADF -AsPlainText).Secret
-        $sheetId = (Get-Secret SmartsheetTMADF -AsPlainText).SheetID
-    
-        $response = Connect-SmartsheetGET -SheetID $sheetId -APIKey $apiKey
-        $columns = $response.columns | Where-Object { ($_.title -like "Name") -or ($_.title -like "Email") }
-        $nameId = $columns | Where-Object { $_.title -eq "Name" }
-        $emailId = $columns | Where-Object { $_.title -eq "Email" }
-        $rows = $response.rows
-    
-        $Url = "rows"
-    
-        $postBody = @{
-            "toBottom" = "true"
-            "cells"    = @(
-                @{
-                    "columnId" = "$($nameId.id)"
-                    "value"    = "$($Name)" 
-                    
-                }
-                @{
-                    "columnId" = "$($emailId.id)"
-                    "value"    = "$($Email)" 
-    
-                })
-        }
-        $response = Connect-Smartsheet -SheetID $sheetId -APIKey $apiKey -MethodType 'Post' -Url $url -Body $postBody    
-
-        $url = "sort"
-        $postBody = @{
-            "sortCriteria" = @(
-                @{
-                    "columnId"  = "$($nameId.id)"
-                    "direction" = "ASCENDING"
-                    
-                })
-        }
-        $response = Connect-Smartsheet -SheetID $sheetId -APIKey $apiKey -MethodType 'Post' -Url $url -Body $postBody  
-        
-    }
-    function Create-UserCheatSheet {
-        [CmdletBinding()]
-        param (
-            [Parameter(Mandatory)]
-            [string]
-            $Name,
-            [Parameter(Mandatory)]
-            [string]
-            $Email,
-            [Parameter(Mandatory)]
-            [string]
-            $Username,
-            [Parameter(Mandatory)]
-            [string]
-            $Title,
-            [Parameter(Mandatory)]
-            [string]
-            $OfficeLocation,
-            [Parameter(Mandatory)]
-            [string]
-            $PhoneNumber,
-            $DoorCode
-        )
-        Add-Type -Path C:\WINDOWS\assembly\GAC_MSIL\office\15.0.0.0__71e9bce111e9429c\office.dll -PassThru
-        Add-Type -Path C:\WINDOWS\assembly\GAC_MSIL\Microsoft.Office.Interop.Word\15.0.0.0__71e9bce111e9429c\Microsoft.Office.Interop.Word.dll -PassThru
-        
-        $Word = New-Object -ComObject Word.Application
-        $Word.Visible = $True
-        $Document = $Word.Documents.Add()
-        $Selection = $Word.Selection
-
-        $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-        $Selection.ParagraphFormat.SpaceAfter = 0
-        $Selection.Style = "Title"
-        $Selection.Font.Size = 14
-        $Selection.Font.Spacing = 0.25
-        $Selection.TypeText("New Employee Information")
-        $Selection.TypeParagraph()
-
-        $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-        $Selection.ParagraphFormat.SpaceAfter = 0
-        $Selection.Style = "Title"
-        $Selection.Font.Size = 14
-        $Selection.Font.Spacing = 0.25
-        $Selection.TypeText("$Name")
-        $Selection.TypeParagraph()
-
-        $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-        $Selection.ParagraphFormat.SpaceAfter = 0
-        $Selection.TypeText("`v")
-        $Selection.TypeParagraph()
-
-        $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-        $Selection.ParagraphFormat.SpaceAfter = 0
-        $Selection.Style = "Normal"
-        $Selection.Font.Name = "Calibri"
-        $Selection.Font.Size = 13
-        $Selection.TypeText("Computer Username: $Username")
-        $Selection.TypeParagraph()
-
-        $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-        $Selection.ParagraphFormat.SpaceAfter = 0
-        $Selection.Style = "Normal"
-        $Selection.Font.Size = 13
-        $Selection.Font.Name = "Calibri"
-        $Selection.TypeText("Computer Password: $(Get-Secret TemporaryPassword -AsPlainText)")
-        $Selection.TypeParagraph()
-
-        $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-        $Selection.ParagraphFormat.SpaceAfter = 0
-        $Selection.Style = "Normal"
-        $Selection.Font.Size = 13
-        $Selection.Font.Name = "Calibri"
-        $Selection.TypeText("Email Address: $Email")
-        $Selection.TypeParagraph()
-
-        $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-        $Selection.ParagraphFormat.SpaceAfter = 0
-        $Selection.TypeText("`v")
-        $Selection.TypeParagraph()
-
-        $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-        $Selection.ParagraphFormat.SpaceAfter = 0
-        $Selection.Style = "Normal"
-        $Selection.Font.Size = 13
-        $Selection.Font.Name = "Calibri"
-        $Selection.TypeText("Desk Phone Number: $PhoneNumber")
-        $Selection.TypeParagraph()
-
-        $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-        $Selection.ParagraphFormat.SpaceAfter = 0
-        $Selection.Style = "Normal"
-        $Selection.Font.Size = 13
-        $Selection.Font.Name = "Calibri"
-        $Selection.TypeText("Ext: $($PhoneNumber.Substring($PhoneNumber.Length -4) )")
-        $Selection.TypeParagraph()
-
-        $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-        $Selection.ParagraphFormat.SpaceAfter = 0
-        $Selection.TypeText("`v")
-        $Selection.TypeParagraph()
-
-        switch ($OfficeLocation) {
-            { $OfficeLocation -like '' } { 
-                $Wifi = "" 
-                $Password = "" 
-            }
-            { $OfficeLocation -like '' } { 
-                $Wifi = "" 
-                $Password = "" 
-            }
-            { $OfficeLocation -like '' } { 
-                $Wifi = "" 
-                $Password = "" 
-            }
-            { $OfficeLocation -like '' } { 
-                $Wifi = "" 
-                $Password = "" 
-            }
-            { $OfficeLocation -like '' } { 
-                $Wifi = "" 
-                $Password = "" 
-            }
-            { $OfficeLocation -like '' } { 
-                $Wifi = "" 
-                $Password = "" 
-            }
-            { $OfficeLocation -like '' } {  
-                $Wifi = "" 
-                $Password = "" 
-            }
-            { $OfficeLocation -like '' } { 
-                $Wifi = "" 
-                $Password = "" 
-            }
-            { $OfficeLocation -like '' } { 
-                $Wifi = "" 
-                $Password = "" 
-            }
-        }
-
-        $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-        $Selection.ParagraphFormat.SpaceAfter = 0
-        $Selection.Font.Bold = 1
-        $Selection.Style = "Normal"
-        $Selection.Font.Size = 14
-        $Selection.Font.Name = "Calibri"
-        $Selection.TypeText("Office Wi-Fi")
-        $Selection.Font.Bold = 0
-        $Selection.TypeParagraph()
-
-        $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-        $Selection.ParagraphFormat.SpaceAfter = 0
-        $Selection.Style = "Normal"
-        $Selection.Font.Size = 13
-        $Selection.Font.Name = "Calibri"
-        $Selection.TypeText("Network ID: $Wifi")
-        $Selection.TypeParagraph()
-
-        $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-        $Selection.ParagraphFormat.SpaceAfter = 0
-        $Selection.Style = "Normal"
-        $Selection.Font.Size = 13
-        $Selection.Font.Name = "Calibri"
-        $Selection.TypeText("Password: $Password")
-        $Selection.TypeParagraph()
-
-        $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-        $Selection.ParagraphFormat.SpaceAfter = 0
-        $Selection.TypeText("`v")
-        $Selection.TypeParagraph()
-
-
-        if ($OfficeLocation -like '**') {
-            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-            $Selection.ParagraphFormat.SpaceAfter = 0
-            $Selection.Style = "Normal"
-            $Selection.Font.Size = 13
-            $Selection.Font.Name = "Calibri"
-            $Selection.TypeText("Door Code: $DoorCode ")
-            $Selection.TypeParagraph()
-    
-            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-            $Selection.ParagraphFormat.SpaceAfter = 0
-            $Selection.Style = "Normal"
-            $Selection.Font.Bold = 1
-            $Selection.Font.Size = 13
-            $Selection.Font.Name = "Calibri"
-            $Selection.TypeText("(Please do not share this code with anyone)")
-            $Selection.Font.Bold = 0
-            $Selection.TypeParagraph()
-    
-    
-            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-            $Selection.ParagraphFormat.SpaceAfter = 0
-            $Selection.TypeText("`v")
-            $Selection.TypeParagraph()
-        }
-
-        $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-        $Selection.ParagraphFormat.SpaceAfter = 0
-        $Selection.Style = "Normal"
-        $Selection.Font.Size = 14
-        $Selection.Font.Name = "Calibri"
-        $Selection.TypeText("RingCentral")
-        $Selection.TypeParagraph()
-
-        $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
-        $Selection.ParagraphFormat.SpaceAfter = 0
-        $Selection.Style = "Normal"
-        $Selection.Font.Size = 13
-        $Selection.Font.Name = "Calibri"
-        $Selection.TypeText("Username: $Email")
-        $Selection.TypeParagraph()
-
-        $fileName = "$env:userprofile\$Name Information Sheet.docx"
-        $saveFormat = [Microsoft.Office.Interop.Word.WdSaveFormat]::wdFormatDocumentDefault
-        $Document.SaveAs([ref][system.object]$fileName, [ref]$saveFormat)
-        $Document.Close()
-        $Word.Quit()
-
-        $null =
-        [System.Runtime.InteropServices.Marshal]::ReleaseComObject([System.__ComObject]$Word)
-        Remove-Variable Word
-    } 
-    function Start-Timer {
-        [CmdletBinding()]
-        param (
-            [Parameter(Mandatory)]
-            [int]
-            $TimeToWaitInSeconds
-        )
-        Write-Host  "Waiting for $TimeToWaitInSeconds seconds..." -ForegroundColor Magenta
-
-        $processTimer = [System.Diagnostics.Stopwatch]::StartNew()
-        while ($processTimer.IsRunning) {
-            if ($processTimer.Elapsed.Seconds -eq $TimeToWaitInSeconds) {
-                $processTimer.Stop() 
-
-                $elapsedTime = "{0:00}:{1:00}" -f $processTimer.Elapsed.Minutes, $processTimer.Elapsed.Seconds
-                Write-Host "Finished - Elapsed Time $elapsedTime `r`n" -ForegroundColor Magenta
-            }
-        }   
     }
    
     $modulesNeeded = "Microsoft.PowerShell.SecretStore", "Microsoft.PowerShell.SecretManagement", "Microsoft.Graph", "ExchangeOnlineManagement", "SqlServer"
-    Install-NeededPackages -PackageName "Nuget" -MinimumVersion "2.8.5.201"  
+    Install-NeededPackages -PackageName "Nuget"  
     Install-NeededModules -ModuleName $modulesNeeded   
-
+    
     Import-Clixml (Join-Path (Split-Path $Profile) SecretStoreCreds.ps1.credential) | Unlock-SecretStore -PasswordTimeout 1800
     $creds = Get-Secret AdminCreds
     if (!$creds) {
@@ -872,14 +337,7 @@ function New-EmployeeOnboarding {
             return
         }
     }
-    else {
-        if (!(Check-IfAccountExists -Name $creds -InputType "Admin" -Credentials $creds)) { 
-            Write-Host -ForegroundColor Red "$creds account not found" 
-            $admin = $null
-            return
-        }
-    }
-
+    
     $Name = $null
     $Name = Get-UserInput -InputType "Name" -Regex '^\s|\s{2,}|\s$|\d|\0|[^a-zA-Z\s]' -FailMessage "Please provide a valid name."
     if (!$Name) { return }
@@ -888,14 +346,15 @@ function New-EmployeeOnboarding {
         $Name = $null
         return
     }
-    
+        
+    $Email = @()
     $Title = @()
     $Manager = @()
     $StartDate = @()
     $PhoneNumber = @()
     $Office = @()
-    $StartDate, $Manager, $Title, $PhoneNumber, $Office = Get-NewEmployeeInfo -Name $Name 
-
+    $Email, $StartDate, $Manager, $Title, $PhoneNumber, $Office = Get-NewEmployeeInfo -Name $Name 
+    
     if (!$Title) {
         $Title = $null
         $Title = Get-UserInput -InputType "Title" -Regex '^\s|\s{2,}|\s$|\d|\0|[^a-zA-Z\s]' -FailMessage "Please provide a valid title."
@@ -904,7 +363,7 @@ function New-EmployeeOnboarding {
     else {
         Write-Host -ForegroundColor Green "$Name's title is $Title"
     }
- 
+     
     if (!$Manager) {
         $Manager = $null
         $Manager = Get-UserInput -InputType "Manager" -Regex '^\s|\s{2,}|\s$|\d|\0|[^a-zA-Z\s]' -FailMessage "Please provide a valid manager name."
@@ -920,7 +379,7 @@ function New-EmployeeOnboarding {
             Write-Host -ForegroundColor Green "$Name's manager is $Manager" 
         }        
     }
-
+    
     if (!$Office) {
         $Office = $null
         $Office = Get-UserInput -InputType "Office" -Regex '^\s|\s{2,}|\s$|\d|\0|[^a-zA-Z\s]' -FailMessage "Please provide a valid office location."
@@ -938,7 +397,7 @@ function New-EmployeeOnboarding {
             return 
         }
     }
-
+    
     $SplitName = $Name.split(" ")
     $First = $SplitName[0]
     $Last = @() -join '' -replace '\s'
@@ -946,8 +405,7 @@ function New-EmployeeOnboarding {
         $Last += $SplitName[$i]
     }
     $User = $First.Substring(0, 1) + $Last
-    $Email = $User + "@.com"
-
+    
     $ManagerSplit = $Manager.split(" ")
     $ManagerUser = @() 
     for ($i = 1; $i -lt $ManagerSplit.Count; $i++) {
@@ -957,7 +415,7 @@ function New-EmployeeOnboarding {
     $ManagerInfo = Invoke-Command -ComputerName $DomainController -ScriptBlock {
         Get-ADUser -Identity $Using:ManagerUser -Properties *
     } -Credential $Creds 
-
+    
     $DN = $ManagerInfo.DistinguishedName.split(",")
     $OU = @() 
     for ($i = 1; $i -lt $DN.Count; $i++) {
@@ -1039,7 +497,7 @@ function New-EmployeeOnboarding {
         UserPrincipalName     = $Email.ToLower()
         Manager               = $ManagerInfo.DistinguishedName
         Department            = $ManagerInfo.Department
-        Company               = "Trademark Property Company"
+        Company               = ""
         Title                 = $Title
         OfficePhone           = $PhoneNumber
         StreetAddress         = $OfficeAddress
@@ -1056,27 +514,120 @@ function New-EmployeeOnboarding {
         param (
             $Attributes
         )
-        New-ADUser @Attributes -Server $DomainName
-
+        New-ADUser @Attributes
+    
         $AdGroups = @()
         $TDMKGroup = Get-ADGroup -Identity Trademark | select ObjectGUID, Name
         $AdGroups += $TDMKGroup
-
-        $OfficeGroups = Get-ADGroup -Filter "Name -like 'Trademark*'"
+    
+        $OfficeGroups = Get-ADGroup -Filter "Name -like '*'"
         If ($Using:Office -eq "Corporate") { 
-            $OfficeGroups = $OfficeGroups | where { $_.Name -eq "Trademark Fort Worth" } | select ObjectGUID, Name 
+            $OfficeGroups = $OfficeGroups | where { $_.Name -eq "" } | select ObjectGUID, Name 
         } 
-        else { $OfficeGroups = $OfficeGroups | where { $_.Name -eq "Trademark $($Using:Office)" } | select ObjectGUID, Name }
+        else { $OfficeGroups = $OfficeGroups | where { $_.Name -eq "$($Using:Office)" } | select ObjectGUID, Name }
         $AdGroups += $OfficeGroups
-
+    
         Add-ADPrincipalGroupMembership -Identity $Attributes.SamAccountName -MemberOf $AdGroups.ObjectGUID 
         foreach ($Group in $AdGroups.Name) {
             Write-Host -ForegroundColor Green "$($Attributes.SamAccountName) has been added to $Group"
         }
-    } 
+    }     
+    
+    $emailSetup = Start-ThreadJob -ArgumentList $Name, $Email, $User, $DomainController, $Creds -ScriptBlock {
+        param($Name, $Email, $User, $DomainController, $Creds)
+        function Start-Timer {
+            [CmdletBinding()]
+            param (
+                [Parameter(Mandatory)]
+                [int]
+                $TimeToWaitInSeconds
+            )
+            Write-Host  "Waiting for $TimeToWaitInSeconds seconds..." -ForegroundColor Magenta
+    
+            $processTimer = [System.Diagnostics.Stopwatch]::StartNew()
+            while ($processTimer.IsRunning) {
+                if ($processTimer.Elapsed.Seconds -eq $TimeToWaitInSeconds) {
+                    $processTimer.Stop() 
+    
+                    $elapsedTime = "{0:00}:{1:00}" -f $processTimer.Elapsed.Minutes, $processTimer.Elapsed.Seconds
+                    Write-Host "Finished - Elapsed Time $elapsedTime `r`n" -ForegroundColor Magenta
+                }
+            }   
+        }        
+        function ConnectTo-MSGraph {
+            Import-Clixml (Join-Path (Split-Path $Profile) SecretStoreCreds.ps1.credential) | Unlock-SecretStore -PasswordTimeout 1800    
+            $appId = (Get-Secret MsGraph -AsPlainText).AppID
+            $tenantId = (Get-Secret MsGraph -AsPlainText).TenantID
+            $secret = (Get-Secret MsGraph -AsPlainText).Secret
 
-    $emailSetup = Start-Job -ArgumentList $Email, $User, $DomainController, $Creds -ScriptBlock {
-        param($Email, $User, $DomainController, $Creds)
+            $body = @{
+                Grant_Type    = "client_credentials"
+                Scope         = "https://graph.microsoft.com/.default"
+                Client_Id     = $appId
+                Client_Secret = $secret
+            }
+ 
+            $connection = Invoke-RestMethod `
+                -Uri https://login.microsoftonline.com/$tenantId/oauth2/v2.0/token `
+                -Method POST `
+                -Body $body
+ 
+            $token = $connection.access_token
+
+            if (!$connection) {
+                $messages += "Can't connect to API"
+            }
+
+            Try {
+                Connect-MgGraph -AccessToken ($token | ConvertTo-SecureString -AsPlainText -Force) -ErrorAction Stop
+            }
+            Catch {
+                $messages += "Can't Connect to MgGraph"
+            }
+        } 
+        function Set-User365License {
+            [CmdletBinding()]
+            param (
+                [Parameter(Mandatory)]
+                $LicenseSku,
+                [Parameter(Mandatory)]
+                [string]
+                $Email
+            )          
+            ConnectTo-MSGraph
+            $userId = Get-MgUser -Filter "Mail eq '$email'" -Property id, displayname, usagelocation | Select-Object ID, DisplayName, UsageLocation 
+            Update-MgUser -UserId $userId.Id -UsageLocation "US"
+        
+            $addLicenses = @()
+            foreach ($sku in $LicenseSku) {
+                $license = Get-MgSubscribedSku | where SkuPartNumber -eq $sku
+                $addLicenses += @{SkuId = $license.SkuId }
+        
+                Write-Host -ForegroundColor Green "$email has been given the following licenses: `n $($license.SkuPartNumber) `n $($license.SkuPartNumber)"
+            }
+            Set-MgUserLicense -UserId $userId.Id -AddLicenses $addLicenses -RemoveLicenses @()
+            
+            Disconnect-Graph  
+        }    
+        function Add-UserTo365Groups {
+            [CmdletBinding()]
+            param (
+                [Parameter(Mandatory)]
+                $NamesOf365Groups,
+                [Parameter(Mandatory)]
+                [string]
+                $Email
+            )
+            ConnectTo-MSGraph
+            $userId = Get-MgUser -Filter "Mail eq '$Email'" -Property id, displayname, usagelocation | Select-Object ID, DisplayName, UsageLocation 
+                    
+            foreach ($group in $NamesOf365Groups) {
+                $group = Get-MgGroup -Filter "DisplayName eq '$group'"
+                New-MgGroupMember -GroupId $group.Id -DirectoryObjectId $userId.Id   
+                Write-Host -ForegroundColor Green "$Name has been added to the following groups:`n $($group.DisplayName)" 
+            }
+            Disconnect-Graph
+        }
 
         Invoke-Command -ComputerName $DomainController -Credential $Creds -ScriptBlock { Start-ADSyncSyncCycle -PolicyType Initial } -Verbose
         Start-Timer -TimeToWaitInSeconds 5
@@ -1118,31 +669,539 @@ function New-EmployeeOnboarding {
             Enable-Mailbox -Identity $Email -Archive
         }
         Disconnect-ExchangeOnline
-    }
-   
-    $miscSetup = Start-Job -ArgumentList $Name, $Email, $User, $Title, $OU, $PhoneNumber, $StartDate, $FWDoorCode, $SqlServerInstance -ScriptBlock {
-        param($Name, $Email, $User, $Title, $OU, $PhoneNumber, $StartDate, $FWDoorCode, $SqlServerInstance)
+    } 
 
+    $miscSetup = Start-ThreadJob -ArgumentList $Name, $Email, $User, $Title, $OU, $PhoneNumber, $StartDate, $FWDoorCode, $SqlServerInstance -ScriptBlock {
+        param($Name, $Email, $User, $Title, $OU, $PhoneNumber, $StartDate, $FWDoorCode, $SqlServerInstance)
+        function Connect-Smartsheet {
+            [CmdletBinding()]
+            param (
+                [Parameter(Mandatory)]
+                [string]
+                $SheetId,
+                [Parameter(Mandatory)]
+                [string]
+                $ApiKey,
+                [Parameter(Mandatory)]
+                [string]
+                $MethodType
+            )
+            DynamicParam {
+                $DynamicParamsToShow = [System.Management.Automation.RuntimeDefinedParameterDictionary]::new()
+    
+                $UrlParameterName = "Url"
+                $UrlParameterType = [string]
+                $UrlParameterAttributes = [System.Collections.ObjectModel.Collection[System.Attribute]]::new()
+    
+                $UrlAttribute = [System.Management.Automation.ParameterAttribute]::new()
+                $UrlAttribute.Mandatory = $true
+                $UrlParameterAttributes.Add($UrlAttribute)
+    
+                $UrlParameter = [System.Management.Automation.RuntimeDefinedParameter]::new($UrlParameterName, $UrlParameterType, $UrlParameterAttributes)
+    
+                $BodyParameterName = "Body"
+                $BodyParameterType = [hashtable]
+                $BodyParameterAttributes = [System.Collections.ObjectModel.Collection[System.Attribute]]::new()
+    
+                $BodyAttribute = [System.Management.Automation.ParameterAttribute]::new()
+                $BodyAttribute.Mandatory = $true
+                $BodyParameterAttributes.Add($BodyAttribute)
+    
+                $BodyParameter = [System.Management.Automation.RuntimeDefinedParameter]::new($BodyParameterName, $BodyParameterType, $BodyParameterAttributes)
+    
+                $RowArrayParameterName = "RowArray"
+                $RowArrayParameterType = [array]
+                $RowArrayParameterAttributes = [System.Collections.ObjectModel.Collection[System.Attribute]]::new()
+    
+                $RowArrayAttribute = [System.Management.Automation.ParameterAttribute]::new()
+                $RowArrayAttribute.Mandatory = $true
+                $RowArrayParameterAttributes.Add($RowArrayAttribute)
+    
+                $RowArrayParameter = [System.Management.Automation.RuntimeDefinedParameter]::new($RowArrayParameterName, $RowArrayParameterType, $RowArrayParameterAttributes)
+    
+                if (($MethodType -eq 'Post') -or $MethodType -eq 'Put') {
+                    $DynamicParamsToShow.Add($UrlParameterName, $UrlParameter)
+                    $DynamicParamsToShow.Add($BodyParameterName, $BodyParameter)
+                }
+                elseif ($MethodType -eq 'Delete') {
+                    $DynamicParamsToShow.Add($RowArrayParameterName, $RowArrayParameter)
+                }
+                return $DynamicParamsToShow
+            }
+            end {
+                switch ($MethodType) {
+                    "Get" {
+                        $headers = $null
+                        $headers = @{}
+                        $headers.add("Authorization", "Bearer " + $ApiKey)
+                        $url = "https://api.smartsheet.com/2.0/sheets/$SheetId" 
+            
+                        $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType
+                        return $response
+                    }
+                    "Post" {
+                        $body = $PSBoundParameters.Body
+                        $url = $PSBoundParameters.Url
+                    
+                        $headers = $null
+                        $headers = @{}
+                        $headers.Add("Authorization", "Bearer " + $ApiKey)
+                        $headers.Add("Content-Type", "application/json")
+                        $url = "https://api.smartsheet.com/2.0/sheets/$SheetId/$url"                        
+                    
+                        $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType -Body ($body | ConvertTo-Json) -Verbose
+                        return $response
+                    }
+                    "Put" {
+                        $body = $PSBoundParameters.Body
+                        $url = $PSBoundParameters.Url
+                    
+                        $headers = $null
+                        $headers = @{}
+                        $headers.Add("Authorization", "Bearer " + $ApiKey)
+                        $headers.Add("Content-Type", "application/json")
+                        $url = "https://api.smartsheet.com/2.0/sheets/$SheetId/$url"                        
+                    
+                        $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType -Body ($body | ConvertTo-Json) -Verbose
+                        return $response
+                    }
+                    "Delete" {
+                        [array]$rowArray = $PSBoundParameters.RowArray
+                        $headers = @{}
+                        $headers.Add("Authorization", "Bearer " + $ApiKey) 
+                        $url = "https://api.smartsheet.com/2.0/sheets/$SheetID/rows?ids=$($rowArray)"
+                        $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType 
+                    }
+                }
+            }
+        }
+        function AddTo-PasswordSheet {
+            [CmdletBinding()]
+            param (
+                [Parameter(Mandatory)]
+                [string]
+                $Name,
+                [Parameter(Mandatory)]
+                [string]
+                $Email
+            )
+            $apiKey = (Get-Secret SmartsheetPasswordExpiration -AsPlainText).Secret
+            $sheetId = (Get-Secret SmartsheetPasswordExpiration -AsPlainText).SheetID    
+    
+            $response = Connect-Smartsheet -SheetID $sheetId -APIKey $apiKey -MethodType 'Get'
+            $columns = $response.columns | Where-Object { ($_.title -like "Primary Column") -or ($_.title -like "Contact") -or ($_.title -like "Expiration Data") }
+            $contactId = $columns | Where-Object { $_.title -eq "Contact" }
+            $dateId = $columns | Where-Object { $_.title -eq "Expiration Data" }
+            $primaryId = $columns | Where-Object { $_.title -eq "Primary Column" }
+            $rows = $response.rows
+    
+            $SplitName = $Name.split(" ")
+            $First = $SplitName[0]
+            $Last = @() -join '' -replace '\s'
+            for ($i = 1; $i -lt $SplitName.Count; $i++) {
+                $Last += $SplitName[$i]
+            }
+            $primaryColumnName = $Last + ',' + " " + $First
+            $url = "rows"
+    
+            $postBody = @{
+                "toBottom" = "true"
+                "cells"    = @(
+                    @{
+                        "columnId" = "$($primaryId.id)"
+                        "value"    = "$($primaryColumnName)"                 
+                    }
+                    @{
+                        "columnId"     = "$($contactId.id)"
+                        "value"        = "$($Email)" 
+                        "displayValue" = "$($Name)" 
+                    }
+                )
+            }
+            $response = Connect-Smartsheet -SheetID $sheetId -APIKey $apiKey -MethodType 'Post' -Url $url -Body $postBody  
+        }
+        function AddTo-TMADFSheet {
+            [CmdletBinding()]
+            param (
+                [Parameter(Mandatory)]
+                [string]
+                $Name,
+                [Parameter(Mandatory)]
+                [string]
+                $Email
+            )
+            $apiKey = (Get-Secret SmartsheetTMADF -AsPlainText).Secret
+            $sheetId = (Get-Secret SmartsheetTMADF -AsPlainText).SheetID
+        
+            $response = Connect-Smartsheet -SheetID $sheetId -APIKey $apiKey -MethodType 'Get'
+            $columns = $response.columns | Where-Object { ($_.title -like "Name") -or ($_.title -like "Email") }
+            $nameId = $columns | Where-Object { $_.title -eq "Name" }
+            $emailId = $columns | Where-Object { $_.title -eq "Email" }
+            $rows = $response.rows
+        
+            $Url = "rows"
+        
+            $postBody = @{
+                "toBottom" = "true"
+                "cells"    = @(
+                    @{
+                        "columnId" = "$($nameId.id)"
+                        "value"    = "$($Name)" 
+                        
+                    }
+                    @{
+                        "columnId" = "$($emailId.id)"
+                        "value"    = "$($Email)" 
+        
+                    })
+            }
+            $response = Connect-Smartsheet -SheetID $sheetId -APIKey $apiKey -MethodType 'Post' -Url $url -Body $postBody    
+    
+            $url = "sort"
+            $postBody = @{
+                "sortCriteria" = @(
+                    @{
+                        "columnId"  = "$($nameId.id)"
+                        "direction" = "ASCENDING"
+                        
+                    })
+            }
+            $response = Connect-Smartsheet -SheetID $sheetId -APIKey $apiKey -MethodType 'Post' -Url $url -Body $postBody  
+            
+        }        
+        function AddTo-SqlTable {
+            [CmdletBinding()]
+            param (
+                [Parameter(Mandatory)]
+                [string]
+                $Name,
+                [Parameter(Mandatory)]
+                [string]
+                $Email,
+                [Parameter(Mandatory)]
+                [string]
+                $Title,
+                [Parameter(Mandatory)]
+                [string]
+                $StartDate,
+                [Parameter(Mandatory)]
+                [string]
+                $ServerInstance,
+                [Parameter(Mandatory)]
+                [string]
+                $Database,
+                [Parameter(Mandatory)]
+                [string]
+                $TableName,
+                [Parameter(Mandatory)]
+                [string]
+                $Schema                
+            )
+            if (($OU -like 'OU=,DC=,DC=') -and ($Title -notlike '*Intern*')) {
+                $GetLastID = Invoke-Sqlcmd -Query "SELECT Top 1 ID,Name,Email,StartDate FROM [$Database].[$Schema].[$TableName] Order by ID Desc" `
+                    -ServerInstance $ServerInstance -Database $Database -TrustServerCertificate  
+                $ID = $GetLastID.ID + 1
+                $ID
+                function createDT() {
+                    $dataTable = New-Object System.Data.DataTable
+    
+                    $idCol = New-Object System.Data.DataColumn(“ID”)
+                    $nameCol = New-Object System.Data.DataColumn(“Name”)
+                    $emailCol = New-Object System.Data.DataColumn(“Email”)
+                    $dateCol = New-Object System.Data.DataColumn(“StartDate”)
+               
+                    $dataTable.columns.Add($idCol)
+                    $dataTable.columns.Add($nameCol)
+                    $dataTable.columns.Add($emailCol)
+                    $dataTable.columns.Add($dateCol)
+           
+                    return , $dataTable
+                } createDT
+            
+                $row = $dataTable.NewRow()
+                $row[“ID”] = $ID
+                $row[“Name”] = $Name
+                $row[“Email”] = $Email 
+                $row[“StartDate”] = $StartDate
+                $dataTable.rows.Add($row) 
+            
+                $Table = Write-SqlTableData -ServerInstance $ServerInstance -Database $Database -TableName $TableName -SchemaName $Schema -InputData $dataTable -Passthru -TrustServerCertificate 
+                Read-SqlTableData -InputObject $Table
+    
+                $dataTable.Clear()
+    
+                function Check-SqlRow {
+                    [CmdletBinding()]
+                    param (
+                        [Parameter(Mandatory)]
+                        [string]
+                        $Name,        
+                        [Parameter(Mandatory)]
+                        [string]
+                        $ServerInstance,
+                        [Parameter(Mandatory)]
+                        [string]
+                        $Database,
+                        [Parameter(Mandatory)]
+                        [string]
+                        $TableName,
+                        [Parameter(Mandatory)]
+                        [string]
+                        $Schema            
+                    )
+                    $CheckForUser = Invoke-Sqlcmd -Query "SELECT ID,Name FROM [$Database].[$Schema].[$TableName] where Name = '$Name'" `
+                        -ServerInstance $ServerInstance -Database $Database -TrustServerCertificate
+                    
+                    if ($CheckForUser) {
+                        Write-Host -ForegroundColor Green "$Name has been added to $TableName"
+                    }
+                    else { Write-Host -ForegroundColor Red "$Name has NOT been added to $TableName" }            
+                }
+                Check-SqlRow -ServerInstance $SqlServerInstance -Database '' -TableName '' -Schema 'dbo' -Name $Name
+            }
+            else { Write-Host -ForegroundColor Red "$Name has not been added to the table." }
+        } 
+        function Create-UserCheatSheet {
+            [CmdletBinding()]
+            param (
+                [Parameter(Mandatory)]
+                [string]
+                $Name,
+                [Parameter(Mandatory)]
+                [string]
+                $Email,
+                [Parameter(Mandatory)]
+                [string]
+                $Username,
+                [Parameter(Mandatory)]
+                [string]
+                $Title,
+                [Parameter(Mandatory)]
+                [string]
+                $OfficeLocation,
+                [Parameter(Mandatory)]
+                [string]
+                $PhoneNumber,
+                $DoorCode
+            )
+            Add-Type -Path C:\WINDOWS\assembly\GAC_MSIL\office\15.0.0.0__71e9bce111e9429c\office.dll -PassThru
+            Add-Type -Path C:\WINDOWS\assembly\GAC_MSIL\Microsoft.Office.Interop.Word\15.0.0.0__71e9bce111e9429c\Microsoft.Office.Interop.Word.dll -PassThru
+            
+            $Word = New-Object -ComObject Word.Application
+            $Word.Visible = $True
+            $Document = $Word.Documents.Add()
+            $Selection = $Word.Selection
+    
+            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+            $Selection.ParagraphFormat.SpaceAfter = 0
+            $Selection.Style = "Title"
+            $Selection.Font.Size = 14
+            $Selection.Font.Spacing = 0.25
+            $Selection.TypeText("New Employee Information")
+            $Selection.TypeParagraph()
+    
+            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+            $Selection.ParagraphFormat.SpaceAfter = 0
+            $Selection.Style = "Title"
+            $Selection.Font.Size = 14
+            $Selection.Font.Spacing = 0.25
+            $Selection.TypeText("$Name")
+            $Selection.TypeParagraph()
+    
+            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+            $Selection.ParagraphFormat.SpaceAfter = 0
+            $Selection.TypeText("`v")
+            $Selection.TypeParagraph()
+    
+            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+            $Selection.ParagraphFormat.SpaceAfter = 0
+            $Selection.Style = "Normal"
+            $Selection.Font.Name = "Calibri"
+            $Selection.Font.Size = 13
+            $Selection.TypeText("Computer Username: $Username")
+            $Selection.TypeParagraph()
+    
+            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+            $Selection.ParagraphFormat.SpaceAfter = 0
+            $Selection.Style = "Normal"
+            $Selection.Font.Size = 13
+            $Selection.Font.Name = "Calibri"
+            $Selection.TypeText("Computer Password: $(Get-Secret TemporaryPassword -AsPlainText)")
+            $Selection.TypeParagraph()
+    
+            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+            $Selection.ParagraphFormat.SpaceAfter = 0
+            $Selection.Style = "Normal"
+            $Selection.Font.Size = 13
+            $Selection.Font.Name = "Calibri"
+            $Selection.TypeText("Email Address: $Email")
+            $Selection.TypeParagraph()
+    
+            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+            $Selection.ParagraphFormat.SpaceAfter = 0
+            $Selection.TypeText("`v")
+            $Selection.TypeParagraph()
+    
+            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+            $Selection.ParagraphFormat.SpaceAfter = 0
+            $Selection.Style = "Normal"
+            $Selection.Font.Size = 13
+            $Selection.Font.Name = "Calibri"
+            $Selection.TypeText("Desk Phone Number: $PhoneNumber")
+            $Selection.TypeParagraph()
+    
+            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+            $Selection.ParagraphFormat.SpaceAfter = 0
+            $Selection.Style = "Normal"
+            $Selection.Font.Size = 13
+            $Selection.Font.Name = "Calibri"
+            $Selection.TypeText("Ext: $($PhoneNumber.Substring($PhoneNumber.Length -4) )")
+            $Selection.TypeParagraph()
+    
+            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+            $Selection.ParagraphFormat.SpaceAfter = 0
+            $Selection.TypeText("`v")
+            $Selection.TypeParagraph()
+    
+            switch ($OfficeLocation) {
+                { $OfficeLocation -like '' } { 
+                    $Wifi = "" 
+                    $Password = "" 
+                }
+                { $OfficeLocation -like '' } { 
+                    $Wifi = "" 
+                    $Password = "" 
+                }
+                { $OfficeLocation -like '' } { 
+                    $Wifi = "" 
+                    $Password = "" 
+                }
+                { $OfficeLocation -like '' } { 
+                    $Wifi = "" 
+                    $Password = "" 
+                }
+                { $OfficeLocation -like '' } { 
+                    $Wifi = "" 
+                    $Password = "" 
+                }
+                { $OfficeLocation -like '' } { 
+                    $Wifi = "" 
+                    $Password = "" 
+                }
+                { $OfficeLocation -like '' } {  
+                    $Wifi = "" 
+                    $Password = "" 
+                }
+                { $OfficeLocation -like '' } { 
+                    $Wifi = "" 
+                    $Password = "" 
+                }
+                { $OfficeLocation -like '' } { 
+                    $Wifi = "" 
+                    $Password = "" 
+                }
+            }
+    
+            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+            $Selection.ParagraphFormat.SpaceAfter = 0
+            $Selection.Font.Bold = 1
+            $Selection.Style = "Normal"
+            $Selection.Font.Size = 14
+            $Selection.Font.Name = "Calibri"
+            $Selection.TypeText("Office Wi-Fi")
+            $Selection.Font.Bold = 0
+            $Selection.TypeParagraph()
+    
+            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+            $Selection.ParagraphFormat.SpaceAfter = 0
+            $Selection.Style = "Normal"
+            $Selection.Font.Size = 13
+            $Selection.Font.Name = "Calibri"
+            $Selection.TypeText("Network ID: $Wifi")
+            $Selection.TypeParagraph()
+    
+            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+            $Selection.ParagraphFormat.SpaceAfter = 0
+            $Selection.Style = "Normal"
+            $Selection.Font.Size = 13
+            $Selection.Font.Name = "Calibri"
+            $Selection.TypeText("Password: $Password")
+            $Selection.TypeParagraph()
+    
+            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+            $Selection.ParagraphFormat.SpaceAfter = 0
+            $Selection.TypeText("`v")
+            $Selection.TypeParagraph()
+    
+    
+            if ($OfficeLocation -like '**') {
+                $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+                $Selection.ParagraphFormat.SpaceAfter = 0
+                $Selection.Style = "Normal"
+                $Selection.Font.Size = 13
+                $Selection.Font.Name = "Calibri"
+                $Selection.TypeText("Door Code: $DoorCode ")
+                $Selection.TypeParagraph()
+        
+                $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+                $Selection.ParagraphFormat.SpaceAfter = 0
+                $Selection.Style = "Normal"
+                $Selection.Font.Bold = 1
+                $Selection.Font.Size = 13
+                $Selection.Font.Name = "Calibri"
+                $Selection.TypeText("(Please do not share this code with anyone)")
+                $Selection.Font.Bold = 0
+                $Selection.TypeParagraph()
+        
+        
+                $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+                $Selection.ParagraphFormat.SpaceAfter = 0
+                $Selection.TypeText("`v")
+                $Selection.TypeParagraph()
+            }
+    
+            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+            $Selection.ParagraphFormat.SpaceAfter = 0
+            $Selection.Style = "Normal"
+            $Selection.Font.Size = 14
+            $Selection.Font.Name = "Calibri"
+            $Selection.TypeText("RingCentral")
+            $Selection.TypeParagraph()
+    
+            $Selection.Style.NoSpaceBetweenParagraphsOfSameStyle = "true"
+            $Selection.ParagraphFormat.SpaceAfter = 0
+            $Selection.Style = "Normal"
+            $Selection.Font.Size = 13
+            $Selection.Font.Name = "Calibri"
+            $Selection.TypeText("Username: $Email")
+            $Selection.TypeParagraph()
+    
+            $fileName = "$env:userprofile\$Name Information Sheet.docx"
+            $saveFormat = [Microsoft.Office.Interop.Word.WdSaveFormat]::wdFormatDocumentDefault
+            $Document.SaveAs([ref][system.object]$fileName, [ref]$saveFormat)
+            $Document.Close()
+            $Word.Quit()
+    
+            $null =
+            [System.Runtime.InteropServices.Marshal]::ReleaseComObject([System.__ComObject]$Word)
+            Remove-Variable Word
+        }         
         AddTo-PasswordSheet -Name $Name -Email $Email
         Write-Host -ForegroundColor Green "$Name has been added to password sheet."
      
         AddTo-TMADFSheet -Name $Name -Email $Email     
         Write-Host -ForegroundColor Green "$Name has been added to TMADF sheet."
 
-        Create-UserCheatSheet -Name $Name -Email $Email -Username $User  -Title $Title -OfficeLocation $OU -PhoneNumber $PhoneNumber -DoorCode $FWDoorCode
+        Create-UserCheatSheet -Name $Name -Email $Email -Username $User  -Title $Title -OfficeLocation $OU -PhoneNumber $PhoneNumber -DoorCode $FWDoorCode 
         Write-Host -ForegroundColor Green "User cheat sheet has been created."
         
-        AddTo-TimeAllocationsTable -ServerInstance $SqlServerInstance -Database '' -TableName '' -Schema 'dbo' -Name $Name -Title $Title -StartDate $StartDate -Email $Email
-    }   
-
-    Wait-Job $emailSetup | Out-Null
+        AddTo-SqlTable -ServerInstance $SqlServerInstance -Database '' -TableName '' -Schema 'dbo' -Name $Name -Title $Title -StartDate $StartDate -Email $Email -OU $OU
+    }
+    
     Wait-Job $miscSetup | Out-Null
-
-    Receive-Job -Job $emailSetup
     Receive-Job -Job $miscSetup
 
+    Wait-Job $emailSetup | Out-Null
+    Receive-Job -Job $emailSetup    
 } 
-New-EmployeeOnboarding -DomainController '' -DomainName '' -SqlServerInstance ''
-
-
-
+New-EmployeeOnboarding -DomainController '' -SqlServerInstance ''

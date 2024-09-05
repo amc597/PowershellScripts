@@ -89,7 +89,6 @@ function Update-PasswordExpirationSheet {
                 }
                 else {
                     Write-Host -ForegroundColor Green "Successfully authenticated with domain $($domain.name)"
-                    return $CheckForUser
                 } 
             }
             "Name" {
@@ -166,7 +165,7 @@ function Update-PasswordExpirationSheet {
     
             $RowArrayParameter = [System.Management.Automation.RuntimeDefinedParameter]::new($RowArrayParameterName, $RowArrayParameterType, $RowArrayParameterAttributes)
     
-            if (($MethodType -eq 'Post') -or ($MethodType -eq 'Put')) {
+            if (($MethodType -eq 'Post') -or $MethodType -eq 'Put') {
                 $DynamicParamsToShow.Add($UrlParameterName, $UrlParameter)
                 $DynamicParamsToShow.Add($BodyParameterName, $BodyParameter)
             }
@@ -175,46 +174,55 @@ function Update-PasswordExpirationSheet {
             }
             return $DynamicParamsToShow
         }
-        end
-        {
+        end {
             switch ($MethodType) {
-                'Get' {
+                "Get" {
                     $headers = $null
                     $headers = @{}
-                    $headers.add("Authorization", "Bearer " + $apiKey)
-                    $methodUrl = "https://api.smartsheet.com/2.0/sheets/$sheetId" 
+                    $headers.add("Authorization", "Bearer " + $ApiKey)
+                    $url = "https://api.smartsheet.com/2.0/sheets/$SheetId" 
             
-                    $response = Invoke-RestMethod -Uri $methodUrl -Headers $headers -Method $MethodType 
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType
                     return $response
                 }
-                'Post' {
+                "Post" {
+                    $body = $PSBoundParameters.Body
+                    $url = $PSBoundParameters.Url
+                    
+                    $headers = $null
                     $headers = @{}
-                    $headers.Add("Authorization", "Bearer " + $apiKey)
+                    $headers.Add("Authorization", "Bearer " + $ApiKey)
                     $headers.Add("Content-Type", "application/json")
-                    $methodUrl = "https://api.smartsheet.com/2.0/sheets/$sheetId/$($DynamicParamsToShow.Url)"
-    
-                    $response = Invoke-RestMethod -Uri $methodUrl -Headers $headers -Method $MethodType -Body ($($DynamicParamsToShow.Body) | ConvertTo-Json)
+                    $url = "https://api.smartsheet.com/2.0/sheets/$SheetId/$url"                        
+                    
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType -Body ($body | ConvertTo-Json) -Verbose
                     return $response
                 }
-                'Put' {
+                "Put" {
+                    $body = $PSBoundParameters.Body
+                    $url = $PSBoundParameters.Url
+                    
+                    $headers = $null
                     $headers = @{}
-                    $headers.Add("Authorization", "Bearer " + $apiKey)
+                    $headers.Add("Authorization", "Bearer " + $ApiKey)
                     $headers.Add("Content-Type", "application/json")
-                    $methodUrl = "https://api.smartsheet.com/2.0/sheets/$sheetId/$($DynamicParamsToShow.Url)"            
-    
-                    $response = Invoke-RestMethod -Uri $methodUrl -Headers $headers -Method $MethodType -Body ($($DynamicParamsToShow.Body) | ConvertTo-Json)
+                    $url = "https://api.smartsheet.com/2.0/sheets/$SheetId/$url"                        
+                    
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType -Body ($body | ConvertTo-Json) -Verbose
                     return $response
                 }
-                'Delete' {
+                "Delete" {
+                    [array]$rowArray = $PSBoundParameters.RowArray
                     $headers = @{}
-                    $headers.Add("Authorization", "Bearer " + $apiKey) 
-                    $methodUrl = "https://api.smartsheet.com/2.0/sheets/$sheetID/rows?ids=$($DynamicParamsToShow.RowArray)"
-                    $response = Invoke-RestMethod -Uri $methodUrl -Headers $headers -Method $MethodType
+                    $headers.Add("Authorization", "Bearer " + $ApiKey) 
+                    $url = "https://api.smartsheet.com/2.0/sheets/$SheetID/rows?ids=$($rowArray)"
+                    $response = Invoke-RestMethod -Uri $url -Headers $headers -Method $MethodType 
                 }
             }
         }
     }
     
+    Import-Clixml (Join-Path (Split-Path $Profile) SecretStoreCreds.ps1.credential) | Unlock-SecretStore -PasswordTimeout 1800
     $creds = Get-Secret AdminCreds
     if (!$creds) {
         $admin = $null
@@ -228,13 +236,13 @@ function Update-PasswordExpirationSheet {
             return
         }
     }
-    # else {
-    #     if (!(Check-IfAccountExists -Name ($creds.UserName.Split('\') | select -Last 1) -InputType "Admin" -Credentials $creds)) { 
-    #         Write-Host -ForegroundColor Red "$($creds.UserName.Split('\') | select -Last 1) account not found" 
-    #         $admin = $null
-    #         return
-    #     }
-    # }
+    else {
+        if (!(Check-IfAccountExists -Name ($creds.UserName.Split('\') | select -Last 1) -InputType "Admin" -Credentials $creds)) { 
+            Write-Host -ForegroundColor Red "$($creds.UserName.Split('\') | select -Last 1) account not found" 
+            $admin = $null
+            return
+        }
+    }
 
     $apikey = (Get-Secret SmartsheetPasswordExpiration -AsPlainText).Secret
     $sheetid = (Get-Secret SmartsheetPasswordExpiration -AsPlainText).SheetID
@@ -299,4 +307,4 @@ function Update-PasswordExpirationSheet {
     }
     $response = Connect-Smartsheet -ApiKey $apikey -SheetId $sheetid -MethodType 'Post' -Url 'sort' -Body $postbody
 }
-Update-PasswordExpirationSheet -DomainController "tm-dc05"
+Update-PasswordExpirationSheet -DomainController ""
