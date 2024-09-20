@@ -47,6 +47,6 @@ function Add-CalendarPermission {
         }
     }    
 }
-Add-CalendarPermission -UsersWhoNeedAccess @("","") -AddUserToTheseEmails @("","") -AccessRights Author
+Add-CalendarPermission -UsersWhoNeedAccess @("") -AddUserToTheseEmails @("") -AccessRights Viewer
 
 

@@ -20,7 +20,6 @@ function Add-SharedMailboxPermission {
             }
         }
     }
-
     function Install-NeededModules($ModuleName) {
         foreach ($Module in $ModuleName) {
             if (!(Get-InstalledModule "$Module" -ErrorAction SilentlyContinue)) {
@@ -45,5 +44,5 @@ function Add-SharedMailboxPermission {
         }
     }    
 }
-Add-SharedMailboxPermission -UsersWhoNeedAccess @("","") -AddUserToTheseEmails @("","") -AccessRights FullAccess -SendAs SendAs
+Add-SharedMailboxPermission -UsersWhoNeedAccess @("CRose@trademarkproperty.com") -AddUserToTheseEmails @("lpsales@trademarkproperty.com") -AccessRights FullAccess -SendAs SendAs
 
